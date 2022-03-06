@@ -1,0 +1,15 @@
+[{
+  "Name": "LSP",
+  "Description": "Generic LSP Client for Micro",
+  "Website": "https://github.com/user/plugin",
+  "Tags": ["lsp"],
+  "Versions": [
+    {
+      "Version": "1.0.0",
+      "Url": "https://github.com/user/plugin/archive/v1.0.0.zip",
+      "Require": {
+        "micro": ">=1.0.3"
+      }
+    }
+  ]
+}]

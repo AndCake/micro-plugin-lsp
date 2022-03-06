@@ -12,7 +12,7 @@ local cmd = nil
 local id = 0
 local queue = {}
 local version = {}
-local currentAction = ''
+local currentAction = {}
 local currentServer = ''
 
 local json = {}
@@ -42,6 +42,7 @@ end
 function init()
 	config.RegisterGlobalOption("lsp", "server", "")
 	config.MakeCommand("hover", hoverAction, config.NoComplete)
+	-- @TODO register additional actions here
 end
 
 function send(method, params) 
@@ -55,11 +56,11 @@ function send(method, params)
 	if id ~= 1 and id <= 3 then
 		table.insert(queue, msg)
 	else
-		-- micro.TermMessage("SENDING", msg)
 		shell.JobSend(cmd, msg)
 	end
 end
 
+-- when a new character is types, the document changes
 function onRune(bp, r)
 	if bp.Buf:FileType() ~= currentServer then
 		return
@@ -71,27 +72,16 @@ function onRune(bp, r)
 	send("textDocument/didChange", fmt.Sprintf('{"textDocument": {"version": %.0f, "uri": "%s"}, "contentChanges": [{"text": "%s"}]}', version[uri], uri, content))
 end
 
-function onBackspace(bp)
-	onRune(bp)
-end
-function onCut(bp)
-	onRune(bp)
-end
-function onCutLine(bp)
-	onRune(bp)
-end
-function onDuplicateLine(bp)
-	onRune(bp)
-end
-function onDeleteLine(bp)
-	onRune(bp)
-end
-function onIndentSelection(bp)
-	onRune(bp)
-end
-function onPaste(bp)
-	onRune(bp)
-end
+-- alias functions for any kind of change to the document
+-- @TODO: add missing ones
+function onBackspace(bp) onRune(bp); end
+function onCut(bp) onRune(bp); end
+function onCutLine(bp) onRune(bp); end
+function onDuplicateLine(bp) onRune(bp); end
+function onDeleteLine(bp) onRune(bp); end
+function onIndentSelection(bp) onRune(bp); end
+function onPaste(bp) onRune(bp); end
+function onSave(bp) onRune(bp); end
 
 function onBufPaneOpen(bp)
 	local server = mysplit(config.GetGlobalOption("lsp.server"), ",")
@@ -106,8 +96,8 @@ function onBufPaneOpen(bp)
 			local wd, err = os.Getwd()
 			local uri = fmt.Sprintf("file://%s", wd)
 			currentServer = bp.Buf:FileType()
-			currentAction = "initialize"
-			send(currentAction, fmt.Sprintf('{"processId": %.0f, "rootUri": "%s", "initializationOptions": %s, "capabilities": {"textDocument": {"hover": {"contentFormat": ["plaintext", "markdown"]}, "publishDiagnostics": {"relatedInformation": false, "versionSupport": false, "codeDescriptionSupport": true, "dataSupport": true}, "signatureHelp": {"signatureInformation": {"documentationFormat": ["plaintext", "markdown"]}}}}}', os.Getpid(), uri, initOptions))
+			currentAction = { method = "initialize" }
+			send(currentAction.method, fmt.Sprintf('{"processId": %.0f, "rootUri": "%s", "initializationOptions": %s, "capabilities": {"textDocument": {"hover": {"contentFormat": ["plaintext", "markdown"]}, "publishDiagnostics": {"relatedInformation": false, "versionSupport": false, "codeDescriptionSupport": true, "dataSupport": true}, "signatureHelp": {"signatureInformation": {"documentationFormat": ["plaintext", "markdown"]}}}}}', os.Getpid(), uri, initOptions))
 			send("initialized", "{}")
 			local file, _ = filepath.Abs(bp.Buf.Path)
 			uri = fmt.Sprintf("file://%s", file)
@@ -163,26 +153,20 @@ function onStdout(text)
 			msg = buffer.NewMessage("lsp", diagnostic.message, mstart, mend, type)
 			bp:AddMessage(msg)
 		end
-	elseif currentAction == "textDocument/hover" and text:find('"jsonrpc":') then
-		currentAction = ''
+	elseif currentAction and currentAction.method and currentAction.response and text:find('"jsonrpc":') then
 		--micro.TermMessage(text)
 		local data = text:parse()
 		local bp = micro.CurPane().Buf
-		if data.result and data.result.contents ~= nil and data.result.contents ~= "" then
-			if data.result.contents.value then
-				micro.InfoBar():Message(data.result.contents.value)
-			else
-				micro.InfoBar():Message(data.result.contents[1].value)
-			end
-		end
+		currentAction.response(bp, data)
+		currentAction = {}
 	elseif text:find('"method":"window/showMessage"') or text:find('"method":"window\\/showMessage"') then
 		local data = text:parse()
 		micro.InfoBar():Message(data.params.message)
 	elseif text:find('"method":"window/logMessage"') or text:find('"method":"window\\/logMessage"') then
 		local data = text:parse()
 		micro.Log(data.params.message)
-	elseif currentAction == "initialize" then
-		currentAction = ''
+	elseif currentAction.method == "initialize" then
+		currentAction = {}
 	elseif text:starts("Content-Length:") then
 		if text:find('"') and not text:find('"result":null') then
 			micro.TermMessage("STDOUT2", text)
@@ -201,19 +185,31 @@ function onExit(str)
 	micro.TermMessage("EXIT: ", str)
 end
 
-function onSave(bp)
-	onRune(bp)
-end
-
+-- the actual hover action request and response
+-- the hoverActionResponse is hooked up in 
 function hoverAction(bp)
 	if cmd ~= nil then
 		local file, _ = filepath.Abs(bp.Buf.Path)
 		local line = bp.Buf:GetActiveCursor().Y
 		local char = bp.Buf:GetActiveCursor().X
-		currentAction = "textDocument/hover"
-		send(currentAction, fmt.Sprintf('{"textDocument": {"uri": "file://%s"}, "position": {"line": %.0f, "character": %.0f}}', file, line, char))
+		currentAction = { method = "textDocument/hover", response = hoverActionResponse }
+		send(currentAction.method, fmt.Sprintf('{"textDocument": {"uri": "file://%s"}, "position": {"line": %.0f, "character": %.0f}}', file, line, char))
 	end
 end
+
+function hoverActionResponse(bp, data)
+	if data.result and data.result.contents ~= nil and data.result.contents ~= "" then
+		if data.result.contents.value then
+			micro.InfoBar():Message(data.result.contents.value)
+		else
+			micro.InfoBar():Message(data.result.contents[1].value)
+		end
+	end
+end
+
+--
+-- @TODO implement additional functions here...
+--
 
 
 

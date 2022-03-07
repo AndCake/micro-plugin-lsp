@@ -42,6 +42,7 @@ end
 function init()
 	config.RegisterGlobalOption("lsp", "server", "")
 	config.MakeCommand("hover", hoverAction, config.NoComplete)
+	config.MakeCommand("definition", definitionAction, config.NoComplete)
 	-- @TODO register additional actions here
 end
 
@@ -123,6 +124,7 @@ function string.starts(String, Start)
 end
 
 function string.parse(text)
+	if not text:find('"jsonrpc":') then return {}; end
 	local start,fin = text:find("\n%s*\n")
 	local cleanedText = text
 	if fin ~= nil then
@@ -133,12 +135,12 @@ function string.parse(text)
 end
 
 function onStdout(text)
-	if text:find('"method":"workspace/configuration"') then
+	local data = text:parse()
+	if data.method == "workspace/configuration" then
 	    -- actually needs to respond with the same ID as the received JSON
 		local message = '{"jsonrpc": "2.0", "id": 0, "result": [{"enable": true}]}'
 		shell.JobSend(cmd, fmt.Sprintf('Content-Length: %.0f\n\n%s', #message, message))
-	elseif text:find('"method":"textDocument/publishDiagnostics"') or text:find('"method":"textDocument\\/publishDiagnostics"') then
-		local data = text:parse()
+	elseif data.method == "textDocument/publishDiagnostics" or data.method == "textDocument\\/publishDiagnostics" then
 		local bp = micro.CurPane().Buf
 		bp:ClearMessages("lsp")
 		for _, diagnostic in ipairs(data.params.diagnostics) do
@@ -156,14 +158,12 @@ function onStdout(text)
 	elseif currentAction and currentAction.method and currentAction.response and text:find('"jsonrpc":') then
 		--micro.TermMessage(text)
 		local data = text:parse()
-		local bp = micro.CurPane().Buf
+		local bp = micro.CurPane()
 		currentAction.response(bp, data)
 		currentAction = {}
-	elseif text:find('"method":"window/showMessage"') or text:find('"method":"window\\/showMessage"') then
-		local data = text:parse()
+	elseif data.method == "window/showMessage" or data.method == "window\\/showMessage" then
 		micro.InfoBar():Message(data.params.message)
-	elseif text:find('"method":"window/logMessage"') or text:find('"method":"window\\/logMessage"') then
-		local data = text:parse()
+	elseif data.method == "window/logMessage" or data.method == "window\\/logMessage" then
 		micro.Log(data.params.message)
 	elseif currentAction.method == "initialize" then
 		currentAction = {}
@@ -197,7 +197,7 @@ function hoverAction(bp)
 	end
 end
 
-function hoverActionResponse(bp, data)
+function hoverActionResponse(buf, data)
 	if data.result and data.result.contents ~= nil and data.result.contents ~= "" then
 		if data.result.contents.value then
 			micro.InfoBar():Message(data.result.contents.value)
@@ -205,6 +205,34 @@ function hoverActionResponse(bp, data)
 			micro.InfoBar():Message(data.result.contents[1].value)
 		end
 	end
+end
+
+function definitionAction(bp)
+	if cmd == nil then return; end
+	local file, _ = filepath.Abs(bp.Buf.Path)
+	local line = bp.Buf:GetActiveCursor().Y
+	local char = bp.Buf:GetActiveCursor().X
+	currentAction = { method = "textDocument/definition", response = definitionActionResponse }
+	send(currentAction.method, fmt.Sprintf('{"textDocument": {"uri": "file://%s"}, "position": {"line": %.0f, "character": %.0f}}', file, line, char))
+end
+
+function definitionActionResponse(bp, data)
+	local results = data.result or data.partialResult
+	if results == nil then return; end
+	local file, _ = filepath.Abs(bp.Buf.Path)
+	if results.uri ~= nil then
+		-- single result
+		results = { results }
+	end
+	local doc = (results[1].uri or results[1].targetUri):gsub("^file://", "")
+	if file ~= doc then
+		-- it's from a different file, so open it as a new tab
+		buf, _ = buffer.NewBufferFromFile(doc)
+		bp:AddTab()
+		micro.CurPane():OpenBuffer(buf)
+	end
+	local range = results[1].range or results[1].targetSelectionRange
+	buf:GetActiveCursor():GotoLoc(buffer.Loc(range.start.character, range.start.line))
 end
 
 --

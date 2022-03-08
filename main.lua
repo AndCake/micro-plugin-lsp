@@ -160,7 +160,6 @@ end
 
 function onStdout(filetype)
 	return function (text)
-		micro.Log("ONSTDOUT", filetype, text)
 		local data = text:parse()
 		if data.method == "workspace/configuration" then
 		    -- actually needs to respond with the same ID as the received JSON
@@ -196,12 +195,11 @@ function onStdout(filetype)
 			currentAction = {}
 		elseif text:starts("Content-Length:") then
 			if text:find('"') and not text:find('"result":null') then
-			    -- enable for debugging purposes
-				-- micro.TermMessage("STDOUT2", filetype, text)
+				micro.Log("Unhandled message", filetype, text)
 			end
 		else
 			-- enable for debugging purposes
-			-- micro.TermMessage("STDOUT", filetype, text)
+			micro.Log("Unhandled message", filetype, text)
 		end
 		sendNext(filetype)
 	end

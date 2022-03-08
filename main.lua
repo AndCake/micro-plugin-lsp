@@ -8,12 +8,13 @@ local os = import("os")
 local path = import("path")
 local filepath = import("path/filepath")
 
-local cmd = nil
-local id = 0
+local cmd = {}
+local id = {}
 local queue = {}
 local version = {}
 local currentAction = {}
-local currentServer = ''
+local filetype = ''
+local rootUri = ''
 
 local json = {}
 
@@ -39,36 +40,70 @@ function mysplit (inputstr, sep)
         return t
 end
 
+function startServers()
+	local wd, _ = os.Getwd()
+	rootUri = fmt.Sprintf("file://%s", wd)
+	local server = mysplit(config.GetGlobalOption("lsp.server"), ",")
+	for i in pairs(server) do
+		local part = mysplit(server[i], "=")
+		local run = mysplit(part[2], "%s")
+		local initOptions = part[3] or '{}'
+		local runCmd = table.remove(run, 1)
+		local args = run
+		local send = withSend(part[1])
+		if cmd[part[1]] ~= nil then return; end
+		id[part[1]] = 0
+		queue[part[1]] = {}
+		micro.Log("Starting server", part[1])
+		cmd[part[1]] = shell.JobSpawn(runCmd, args, onStdout(part[1]), onStderr, onExit, {})
+		currentAction = { method = "initialize" }
+		send(currentAction.method, fmt.Sprintf('{"processId": %.0f, "rootUri": "%s", "initializationOptions": %s, "capabilities": {"textDocument": {"hover": {"contentFormat": ["plaintext", "markdown"]}, "publishDiagnostics": {"relatedInformation": false, "versionSupport": false, "codeDescriptionSupport": true, "dataSupport": true}, "signatureHelp": {"signatureInformation": {"documentationFormat": ["plaintext", "markdown"]}}}}}', os.Getpid(), rootUri, initOptions))
+		send("initialized", "{}")
+	end
+end
+
 function init()
 	config.RegisterGlobalOption("lsp", "server", "")
 	config.MakeCommand("hover", hoverAction, config.NoComplete)
 	config.MakeCommand("definition", definitionAction, config.NoComplete)
+
+	config.TryBindKey("Alt-k", "command:hover", false)
+	config.TryBindKey("Alt-d", "command:definition", false)
+	
 	-- @TODO register additional actions here
 end
 
-function send(method, params) 
-    if cmd == nil then
-    	return
-    end
-    
-	local msg = fmt.Sprintf('{"jsonrpc": "2.0", "id": %.0f, "method": "%s", "params": %s}', id, method, params)
-	id = id + 1
-	msg = fmt.Sprintf("Content-Length: %.0f\n\n%s", #msg, msg)
-	if id ~= 1 and id <= 3 then
-		table.insert(queue, msg)
-	else
-		shell.JobSend(cmd, msg)
+function withSend(filetype)
+	return function (method, params) 
+	    if cmd[filetype] == nil then
+	    	return
+	    end
+	    
+		local msg = fmt.Sprintf('{"jsonrpc": "2.0", "id": %.0f, "method": "%s", "params": %s}', id[filetype], method, params)
+		id[filetype] = id[filetype] + 1
+		msg = fmt.Sprintf("Content-Length: %.0f\n\n%s", #msg, msg)
+		if id[filetype] ~= 1 and id[filetype] <= 3 then
+			micro.Log("send", filetype, "queueing", method)
+			table.insert(queue[filetype], msg)
+		else
+			micro.Log("send", filetype, "sending", method or msg)
+			shell.JobSend(cmd[filetype], msg)
+		end
 	end
 end
 
 -- when a new character is types, the document changes
 function onRune(bp, r)
-	if bp.Buf:FileType() ~= currentServer then
+	local filetype = bp.Buf:FileType()
+	if cmd[filetype] == nil then
 		return
 	end
-	local file, _ = filepath.Abs(bp.Buf.Path)
+	local send = withSend(filetype)
+	local file = bp.Buf.AbsPath
 	uri = fmt.Sprintf("file://%s", file)
+	-- allow the document contents to be escaped properly for the JSON string
 	local content = util.String(bp.Buf:Bytes()):gsub("\\", "\\\\"):gsub("\n", "\\n"):gsub("\r", "\\r"):gsub('"', '\\"'):gsub("\t", "\\t")
+	-- increase change version
 	version[uri] = (version[uri] or 0) + 1
 	send("textDocument/didChange", fmt.Sprintf('{"textDocument": {"version": %.0f, "uri": "%s"}, "contentChanges": [{"text": "%s"}]}', version[uri], uri, content))
 end
@@ -84,37 +119,26 @@ function onIndentSelection(bp) onRune(bp); end
 function onPaste(bp) onRune(bp); end
 function onSave(bp) onRune(bp); end
 
-function onBufPaneOpen(bp)
-	local server = mysplit(config.GetGlobalOption("lsp.server"), ",")
-	for i in pairs(server) do
-		local part = mysplit(server[i], "|")
-		if part[1] == bp.Buf:FileType() and part[2] ~= "" and cmd == nil then
-			local run = mysplit(part[2], "%s")
-			local initOptions = part[3] or '{}'
-			local runCmd = table.remove(run, 1)
-			local args = run
-			cmd = shell.JobSpawn(runCmd, args, onStdout, onStderr, onExit, {})
-			local wd, err = os.Getwd()
-			local uri = fmt.Sprintf("file://%s", wd)
-			currentServer = bp.Buf:FileType()
-			currentAction = { method = "initialize" }
-			send(currentAction.method, fmt.Sprintf('{"processId": %.0f, "rootUri": "%s", "initializationOptions": %s, "capabilities": {"textDocument": {"hover": {"contentFormat": ["plaintext", "markdown"]}, "publishDiagnostics": {"relatedInformation": false, "versionSupport": false, "codeDescriptionSupport": true, "dataSupport": true}, "signatureHelp": {"signatureInformation": {"documentationFormat": ["plaintext", "markdown"]}}}}}', os.Getpid(), uri, initOptions))
-			send("initialized", "{}")
-			local file, _ = filepath.Abs(bp.Buf.Path)
-			uri = fmt.Sprintf("file://%s", file)
-			local content = util.String(bp.Buf:Bytes()):gsub("\\", "\\\\"):gsub("\n", "\\n"):gsub("\r", "\\r"):gsub('"', '\\"'):gsub("\t", "\\t")
-			send("textDocument/didOpen", fmt.Sprintf('{"textDocument": {"uri": "%s", "languageId": "%s", "version": 1, "text": "%s"}}', uri, part[1], content))
-		end
-	end
+function onBufferOpen(buf)
+	local filetype = buf:FileType()
+	if filetype ~= "unknown" and rootUri == "" then startServers(); end
+	micro.Log("ONBUFFEROPEN", filetype)
+	if cmd[filetype] == nil then return; end
+	micro.Log("Found running lsp server for ", filetype, "firing textDocument/didOpen...")
+	local send = withSend(filetype)
+	local file = buf.AbsPath
+	local uri = fmt.Sprintf("file://%s", file)
+	local content = util.String(buf:Bytes()):gsub("\\", "\\\\"):gsub("\n", "\\n"):gsub("\r", "\\r"):gsub('"', '\\"'):gsub("\t", "\\t")
+	send("textDocument/didOpen", fmt.Sprintf('{"textDocument": {"uri": "%s", "languageId": "%s", "version": 1, "text": "%s"}}', uri, filetype, content))
 end
 
-function sendNext()
-	if #queue > 0 then
-		local msg = table.remove(queue, 1)
-		-- micro.TermMessage("SENDING NEXT", msg)
-		shell.JobSend(cmd, msg)
+function sendNext(filetype)
+	if #queue[filetype] > 0 then
+		local msg = table.remove(queue[filetype], 1)
+		micro.Log("send", filetype, "sending", method)
+		shell.JobSend(cmd[filetype], msg)
 		if msg:find('"method": "initialized"') then
-			sendNext()
+			sendNext(filetype)
 		end
 	end
 end
@@ -134,62 +158,72 @@ function string.parse(text)
 	return data
 end
 
-function onStdout(text)
-	local data = text:parse()
-	if data.method == "workspace/configuration" then
-	    -- actually needs to respond with the same ID as the received JSON
-		local message = '{"jsonrpc": "2.0", "id": 0, "result": [{"enable": true}]}'
-		shell.JobSend(cmd, fmt.Sprintf('Content-Length: %.0f\n\n%s', #message, message))
-	elseif data.method == "textDocument/publishDiagnostics" or data.method == "textDocument\\/publishDiagnostics" then
-		local bp = micro.CurPane().Buf
-		bp:ClearMessages("lsp")
-		for _, diagnostic in ipairs(data.params.diagnostics) do
-			local type = buffer.MTInfo
-			if diagnostic.severity == 1 then
-				type = buffer.MTError
-			elseif diagnostic.severity == 2 then
-				type = buffer.MTWarning
-			end
-			local mstart = buffer.Loc(diagnostic.range.start.character, diagnostic.range.start.line)
-            local mend = buffer.Loc(diagnostic.range["end"].character, diagnostic.range["end"].line)
-			msg = buffer.NewMessage("lsp", diagnostic.message, mstart, mend, type)
-			bp:AddMessage(msg)
-		end
-	elseif currentAction and currentAction.method and currentAction.response and text:find('"jsonrpc":') then
-		--micro.TermMessage(text)
+function onStdout(filetype)
+	return function (text)
+		micro.Log("ONSTDOUT", filetype, text)
 		local data = text:parse()
-		local bp = micro.CurPane()
-		currentAction.response(bp, data)
-		currentAction = {}
-	elseif data.method == "window/showMessage" or data.method == "window\\/showMessage" then
-		micro.InfoBar():Message(data.params.message)
-	elseif data.method == "window/logMessage" or data.method == "window\\/logMessage" then
-		micro.Log(data.params.message)
-	elseif currentAction.method == "initialize" then
-		currentAction = {}
-	elseif text:starts("Content-Length:") then
-		if text:find('"') and not text:find('"result":null') then
-			micro.TermMessage("STDOUT2", text)
+		if data.method == "workspace/configuration" then
+		    -- actually needs to respond with the same ID as the received JSON
+			local message = fmt.Sprintf('{"jsonrpc": "2.0", "id": %.0f, "result": [{"enable": true}]}', data.id)
+			shell.JobSend(cmd[filetype], fmt.Sprintf('Content-Length: %.0f\n\n%s', #message, message))
+		elseif data.method == "textDocument/publishDiagnostics" or data.method == "textDocument\\/publishDiagnostics" then
+			-- react to server-published event
+			local bp = micro.CurPane().Buf
+			bp:ClearMessages("lsp")
+			for _, diagnostic in ipairs(data.params.diagnostics) do
+				local type = buffer.MTInfo
+				if diagnostic.severity == 1 then
+					type = buffer.MTError
+				elseif diagnostic.severity == 2 then
+					type = buffer.MTWarning
+				end
+				local mstart = buffer.Loc(diagnostic.range.start.character, diagnostic.range.start.line)
+	            local mend = buffer.Loc(diagnostic.range["end"].character, diagnostic.range["end"].line)
+				msg = buffer.NewMessage("lsp", diagnostic.message, mstart, mend, type)
+				bp:AddMessage(msg)
+			end
+		elseif currentAction and currentAction.method and currentAction.response and text:find('"jsonrpc":') then
+			-- react to custom action event
+			local data = text:parse()
+			local bp = micro.CurPane()
+			currentAction.response(bp, data)
+			currentAction = {}
+		elseif data.method == "window/showMessage" or data.method == "window\\/showMessage" then
+			micro.InfoBar():Message(data.params.message)
+		elseif data.method == "window/logMessage" or data.method == "window\\/logMessage" then
+			micro.Log(data.params.message)
+		elseif currentAction.method == "initialize" then
+			currentAction = {}
+		elseif text:starts("Content-Length:") then
+			if text:find('"') and not text:find('"result":null') then
+			    -- enable for debugging purposes
+				-- micro.TermMessage("STDOUT2", filetype, text)
+			end
+		else
+			-- enable for debugging purposes
+			-- micro.TermMessage("STDOUT", filetype, text)
 		end
-	else
-		micro.TermMessage("STDOUT", text)
+		sendNext(filetype)
 	end
-	sendNext()
 end
 
 function onStderr(text)
+	micro.Log("ONSTDERR", text)
 	micro.InfoBar():Error(text)
 end
 
 function onExit(str)
-	micro.TermMessage("EXIT: ", str)
+	micro.Log("ONEXIT", text)
+	micro.InfoBar():Error(str)
 end
 
 -- the actual hover action request and response
 -- the hoverActionResponse is hooked up in 
 function hoverAction(bp)
-	if cmd ~= nil then
-		local file, _ = filepath.Abs(bp.Buf.Path)
+	local filetype = bp.Buf:FileType()
+	if cmd[filetype] ~= nil then
+		local send = withSend(filetype)
+		local file = bp.Buf.AbsPath
 		local line = bp.Buf:GetActiveCursor().Y
 		local char = bp.Buf:GetActiveCursor().X
 		currentAction = { method = "textDocument/hover", response = hoverActionResponse }
@@ -207,9 +241,13 @@ function hoverActionResponse(buf, data)
 	end
 end
 
+-- the definition action request and response
 function definitionAction(bp)
+	local filetype = bp.Buf:FileType()	
 	if cmd == nil then return; end
-	local file, _ = filepath.Abs(bp.Buf.Path)
+	
+	local send = withSend(filetype)
+	local file = bp.Buf.AbsPath
 	local line = bp.Buf:GetActiveCursor().Y
 	local char = bp.Buf:GetActiveCursor().X
 	currentAction = { method = "textDocument/definition", response = definitionActionResponse }
@@ -219,14 +257,17 @@ end
 function definitionActionResponse(bp, data)
 	local results = data.result or data.partialResult
 	if results == nil then return; end
-	local file, _ = filepath.Abs(bp.Buf.Path)
+	local file = bp.Buf.AbsPath
 	if results.uri ~= nil then
 		-- single result
 		results = { results }
 	end
+	if #results <= 0 then return; end
 	local doc = (results[1].uri or results[1].targetUri):gsub("^file://", "")
+	local buf = bp.Buf
 	if file ~= doc then
 		-- it's from a different file, so open it as a new tab
+		-- @TODO figure out a way to remove the root URI from the doc path (to shorten the file name displayed in the tab)
 		buf, _ = buffer.NewBufferFromFile(doc)
 		bp:AddTab()
 		micro.CurPane():OpenBuffer(buf)
@@ -344,6 +385,6 @@ function json.parse(str, pos, end_delim)
       if str:sub(pos, lit_end) == lit_str then return lit_val, lit_end + 1 end
     end
     local pos_info_str = 'position ' .. pos .. ': ' .. str:sub(pos, pos + 10)
-    error('Invalid json syntax starting at ' .. pos_info_str)
+    error('Invalid json syntax starting at ' .. pos_info_str .. ': ' .. str)
   end
 end

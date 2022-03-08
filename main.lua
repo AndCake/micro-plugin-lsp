@@ -43,7 +43,7 @@ end
 function startServers()
 	local wd, _ = os.Getwd()
 	rootUri = fmt.Sprintf("file://%s", wd)
-	local server = mysplit(config.GetGlobalOption("lsp.server"), ",")
+	local server = mysplit(config.GetGlobalOption("lsp.server") or '', ",")
 	for i in pairs(server) do
 		local part = mysplit(server[i], "=")
 		local run = mysplit(part[2], "%s")

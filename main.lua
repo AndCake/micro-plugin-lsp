@@ -15,6 +15,9 @@ local version = {}
 local currentAction = {}
 local filetype = ''
 local rootUri = ''
+local message = ''
+local completionCursor = 0
+local lastCompletion = {}
 
 local json = {}
 
@@ -66,9 +69,11 @@ function init()
 	config.RegisterGlobalOption("lsp", "server", "")
 	config.MakeCommand("hover", hoverAction, config.NoComplete)
 	config.MakeCommand("definition", definitionAction, config.NoComplete)
+	config.MakeCommand("lspcompletion", completionAction, config.NoComplete)
 
 	config.TryBindKey("Alt-k", "command:hover", false)
 	config.TryBindKey("Alt-d", "command:definition", false)
+	config.TryBindKey("Tab", "command:lspcompletion|Autocomplete|IndentSelection|InsertTab", false)
 	
 	-- @TODO register additional actions here
 end
@@ -147,6 +152,10 @@ function string.starts(String, Start)
 	return string.sub(String, 1, #Start) == Start
 end
 
+function string.ends(String, End)
+	return string.sub(String, #String - (#End - 1), #String) == End
+end
+
 function string.parse(text)
 	if not text:find('"jsonrpc":') then return {}; end
 	local start,fin = text:find("\n%s*\n")
@@ -160,7 +169,16 @@ end
 
 function onStdout(filetype)
 	return function (text)
-		local data = text:parse()
+		micro.Log("Received", filetype, text)
+		if text:starts("Content-Length:") then
+			message = text
+		else
+			message = message .. text
+		end
+		if not text:ends("}") then
+			return
+		end	
+		local data = message:parse()
 		if data.method == "workspace/configuration" then
 		    -- actually needs to respond with the same ID as the received JSON
 			local message = fmt.Sprintf('{"jsonrpc": "2.0", "id": %.0f, "result": [{"enable": true}]}', data.id)
@@ -193,13 +211,13 @@ function onStdout(filetype)
 			micro.Log(data.params.message)
 		elseif currentAction.method == "initialize" then
 			currentAction = {}
-		elseif text:starts("Content-Length:") then
-			if text:find('"') and not text:find('"result":null') then
-				micro.Log("Unhandled message", filetype, text)
+		elseif message:starts("Content-Length:") then
+			if message:find('"') and not message:find('"result":null') then
+				micro.Log("Unhandled message", filetype, message)
 			end
 		else
 			-- enable for debugging purposes
-			micro.Log("Unhandled message", filetype, text)
+			micro.Log("Unhandled message", filetype, message)
 		end
 		sendNext(filetype)
 	end
@@ -242,7 +260,7 @@ end
 -- the definition action request and response
 function definitionAction(bp)
 	local filetype = bp.Buf:FileType()	
-	if cmd == nil then return; end
+	if cmd[filetype] == nil then return; end
 	
 	local send = withSend(filetype)
 	local file = bp.Buf.AbsPath
@@ -272,6 +290,60 @@ function definitionActionResponse(bp, data)
 	end
 	local range = results[1].range or results[1].targetSelectionRange
 	buf:GetActiveCursor():GotoLoc(buffer.Loc(range.start.character, range.start.line))
+end
+
+function completionAction(bp)
+	local filetype = bp.Buf:FileType()
+	if cmd[filetype] == nil then return; end
+	local send = withSend(filetype)
+	local file = bp.Buf.AbsPath
+	local line = bp.Buf:GetActiveCursor().Y
+	local char = bp.Buf:GetActiveCursor().X
+
+	if lastCompletion[1] == file and lastCompletion[2] == line and lastCompletion[3] == char then 
+		completionCursor = completionCursor + 1
+	else
+		completionCursor = 0
+	end
+	lastCompletion = {file, line, char}
+	currentAction = { method = "textDocument/completion", response = completionActionResponse }
+	send(currentAction.method, fmt.Sprintf('{"textDocument": {"uri": "file://%s"}, "position": {"line": %.0f, "character": %.0f}}', file, line, char))
+end
+
+function completionActionResponse(bp, data)
+	local results = data.result
+	if results == nil then return; end
+	if results.items then
+		results = results.items
+	end
+	entry = results[(completionCursor % #results) + 1]
+	if entry == nil then return; end
+
+	local xy = buffer.Loc(bp.Cursor.X, bp.Cursor.Y)
+	local start = xy
+	if bp.Cursor:HasSelection() then
+		bp.Cursor:DeleteSelection()
+	end
+	if entry.textEdit then
+		start = buffer.Loc(entry.textEdit.range.start.character, entry.textEdit.range.start.line)
+		bp.Cursor:SetSelectionStart(start)
+		bp.Cursor:SetSelectionEnd(xy)
+		bp.Cursor:DeleteSelection()
+		bp.Cursor:ResetSelection()
+	end
+	bp.Buf:insert(start, entry.textEdit and entry.textEdit.newText or entry.label)
+	bp.Cursor:GotoLoc(start)
+	bp.Cursor:SetSelectionStart(start)
+	bp.Cursor:SetSelectionEnd(buffer.Loc(start.X + #(entry.textEdit and entry.textEdit.newText or entry.label), start.Y))
+
+	local msg = ''
+	for idx, result in ipairs(results) do
+		if idx >= (completionCursor % #results) + 1 then 
+			if msg ~= '' then msg = msg .. '  '; end
+			msg = msg .. result.label
+		end
+	end
+	micro.InfoBar():Message(msg)
 end
 
 --

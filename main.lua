@@ -73,7 +73,7 @@ function init()
 
 	config.TryBindKey("Alt-k", "command:hover", false)
 	config.TryBindKey("Alt-d", "command:definition", false)
-	config.TryBindKey("Tab", "command:lspcompletion|Autocomplete|IndentSelection|InsertTab", false)
+	config.TryBindKey("CtrlSpace", "command:lspcompletion", false)
 	
 	-- @TODO register additional actions here
 end
@@ -337,10 +337,14 @@ function completionActionResponse(bp, data)
 	bp.Cursor:SetSelectionEnd(buffer.Loc(start.X + #(entry.textEdit and entry.textEdit.newText or entry.label), start.Y))
 
 	local msg = ''
-	for idx, result in ipairs(results) do
-		if idx >= (completionCursor % #results) + 1 then 
-			if msg ~= '' then msg = msg .. '  '; end
-			msg = msg .. result.label
+	if entry.detail or entry.documentation then
+		msg = fmt.Sprintf("%s %s", entry.detail or '', entry.documentation or '')
+	else
+		for idx, result in ipairs(results) do
+			if idx >= (completionCursor % #results) + 1 then 
+				if msg ~= '' then msg = msg .. '  '; end
+				msg = msg .. result.label
+			end
 		end
 	end
 	micro.InfoBar():Message(msg)

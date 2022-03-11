@@ -9,11 +9,13 @@ Currently implemented methods:
 
 * textDocument/hover
 * textDocument/definition
+* textDocument/completion
 
 If possible, this plugin will register the following shortcuts:
 
 - Alt-k for hover
 - Alt-d for definition lookup
+- Ctrl-space for completion
 
 Installation
 ------------

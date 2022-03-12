@@ -32,6 +32,13 @@ function toBytes(str)
 	return result
 end
 
+function getUriFromBuf(buf)
+	if buf == nil then return; end
+	local file = buf.AbsPath
+	local uri = fmt.Sprintf("file://%s", file)
+	return uri
+end
+
 function mysplit (inputstr, sep)
         if sep == nil then
                 sep = "%s"
@@ -104,8 +111,7 @@ function onRune(bp, r)
 		return
 	end
 	local send = withSend(filetype)
-	local file = bp.Buf.AbsPath
-	uri = fmt.Sprintf("file://%s", file)
+	local uri = getUriFromBuf(bp.Buf)
 	-- allow the document contents to be escaped properly for the JSON string
 	local content = util.String(bp.Buf:Bytes()):gsub("\\", "\\\\"):gsub("\n", "\\n"):gsub("\r", "\\r"):gsub('"', '\\"'):gsub("\t", "\\t")
 	-- increase change version
@@ -120,6 +126,9 @@ function onCut(bp) onRune(bp); end
 function onCutLine(bp) onRune(bp); end
 function onDuplicateLine(bp) onRune(bp); end
 function onDeleteLine(bp) onRune(bp); end
+function onDelete(bp) onRune(bp); end
+function onUndo(bp) onRune(bp); end
+function onRedo(bp) onRune(bp); end
 function onIndentSelection(bp) onRune(bp); end
 function onPaste(bp) onRune(bp); end
 function onSave(bp) onRune(bp); end
@@ -131,8 +140,7 @@ function onBufferOpen(buf)
 	if cmd[filetype] == nil then return; end
 	micro.Log("Found running lsp server for ", filetype, "firing textDocument/didOpen...")
 	local send = withSend(filetype)
-	local file = buf.AbsPath
-	local uri = fmt.Sprintf("file://%s", file)
+	local uri = getUriFromBuf(buf)
 	local content = util.String(buf:Bytes()):gsub("\\", "\\\\"):gsub("\n", "\\n"):gsub("\r", "\\r"):gsub('"', '\\"'):gsub("\t", "\\t")
 	send("textDocument/didOpen", fmt.Sprintf('{"textDocument": {"uri": "%s", "languageId": "%s", "version": 1, "text": "%s"}}', uri, filetype, content))
 end
@@ -187,17 +195,20 @@ function onStdout(filetype)
 			-- react to server-published event
 			local bp = micro.CurPane().Buf
 			bp:ClearMessages("lsp")
-			for _, diagnostic in ipairs(data.params.diagnostics) do
-				local type = buffer.MTInfo
-				if diagnostic.severity == 1 then
-					type = buffer.MTError
-				elseif diagnostic.severity == 2 then
-					type = buffer.MTWarning
+			local uri = getUriFromBuf(bp)
+			if data.params.uri == uri then
+				for _, diagnostic in ipairs(data.params.diagnostics) do
+					local type = buffer.MTInfo
+					if diagnostic.severity == 1 then
+						type = buffer.MTError
+					elseif diagnostic.severity == 2 then
+						type = buffer.MTWarning
+					end
+					local mstart = buffer.Loc(diagnostic.range.start.character, diagnostic.range.start.line)
+		            local mend = buffer.Loc(diagnostic.range["end"].character, diagnostic.range["end"].line)
+					msg = buffer.NewMessage("lsp", diagnostic.message, mstart, mend, type)
+					bp:AddMessage(msg)
 				end
-				local mstart = buffer.Loc(diagnostic.range.start.character, diagnostic.range.start.line)
-	            local mend = buffer.Loc(diagnostic.range["end"].character, diagnostic.range["end"].line)
-				msg = buffer.NewMessage("lsp", diagnostic.message, mstart, mend, type)
-				bp:AddMessage(msg)
 			end
 		elseif currentAction and currentAction.method and currentAction.response and text:find('"jsonrpc":') then
 			-- react to custom action event
@@ -290,6 +301,7 @@ function definitionActionResponse(bp, data)
 	end
 	local range = results[1].range or results[1].targetSelectionRange
 	buf:GetActiveCursor():GotoLoc(buffer.Loc(range.start.character, range.start.line))
+	bp:Center()
 end
 
 function completionAction(bp)

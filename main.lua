@@ -93,7 +93,7 @@ function withSend(filetype)
 	    
 		local msg = fmt.Sprintf('{"jsonrpc": "2.0", "id": %.0f, "method": "%s", "params": %s}', id[filetype], method, params)
 		id[filetype] = id[filetype] + 1
-		msg = fmt.Sprintf("Content-Length: %.0f\n\n%s", #msg, msg)
+		msg = fmt.Sprintf("Content-Length: %.0f\r\n\r\n%s", #msg, msg)
 		if id[filetype] ~= 1 and id[filetype] <= 3 then
 			micro.Log("send", filetype, "queueing", method)
 			table.insert(queue[filetype], msg)

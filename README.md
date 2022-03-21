@@ -53,11 +53,10 @@ This plugin has been tested briefly with the following language servers:
 * go: gopls
 * typescript, javascript (including JSX/TSX): deno
 * python: pyls
+* rust: rls
 * lua: lua-lsp
 
 Known issues
 ------------
-
-For some unknown reason, the rust language server "rls" is not able to parse any JSON messages sent to it, whereas the other servers don't have issues in that regard.
 
 Not all possible types of modification events to the file are currently being sent to the language server. Saving the file will re-synchronize it, though.

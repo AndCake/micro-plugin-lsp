@@ -68,7 +68,7 @@ function startServers()
 		cmd[part[1]] = shell.JobSpawn(runCmd, args, onStdout(part[1]), onStderr, onExit, {})
 		currentAction = { method = "initialize" }
 		send(currentAction.method, fmt.Sprintf('{"processId": %.0f, "rootUri": "%s", "initializationOptions": %s, "capabilities": {"textDocument": {"hover": {"contentFormat": ["plaintext", "markdown"]}, "publishDiagnostics": {"relatedInformation": false, "versionSupport": false, "codeDescriptionSupport": true, "dataSupport": true}, "signatureHelp": {"signatureInformation": {"documentationFormat": ["plaintext", "markdown"]}}}}}', os.Getpid(), rootUri, initOptions))
-		send("initialized", "{}")
+		send("initialized", "{}", true)
 	end
 end
 
@@ -86,19 +86,19 @@ function init()
 end
 
 function withSend(filetype)
-	return function (method, params) 
+	return function (method, params, isNotification) 
 	    if cmd[filetype] == nil then
 	    	return
 	    end
 	    
-		local msg = fmt.Sprintf('{"jsonrpc": "2.0", "id": %.0f, "method": "%s", "params": %s}', id[filetype], method, params)
+		local msg = fmt.Sprintf('{"jsonrpc": "2.0", %s"method": "%s", "params": %s}', not isNotification and fmt.Sprintf('"id": %.0f, ', id[filetype]) or "", method, params)
 		id[filetype] = id[filetype] + 1
-		msg = fmt.Sprintf("Content-Length: %.0f\n\n%s", #msg, msg)
+		msg = fmt.Sprintf("Content-Length: %.0f\r\n\r\n%s", #msg, msg)
 		if id[filetype] ~= 1 and id[filetype] <= 3 then
 			micro.Log("send", filetype, "queueing", method)
 			table.insert(queue[filetype], msg)
 		else
-			micro.Log("send", filetype, "sending", method or msg)
+			micro.Log("send", filetype, "sending", method or msg, msg)
 			shell.JobSend(cmd[filetype], msg)
 		end
 	end
@@ -116,7 +116,7 @@ function onRune(bp, r)
 	local content = util.String(bp.Buf:Bytes()):gsub("\\", "\\\\"):gsub("\n", "\\n"):gsub("\r", "\\r"):gsub('"', '\\"'):gsub("\t", "\\t")
 	-- increase change version
 	version[uri] = (version[uri] or 0) + 1
-	send("textDocument/didChange", fmt.Sprintf('{"textDocument": {"version": %.0f, "uri": "%s"}, "contentChanges": [{"text": "%s"}]}', version[uri], uri, content))
+	send("textDocument/didChange", fmt.Sprintf('{"textDocument": {"version": %.0f, "uri": "%s"}, "contentChanges": [{"text": "%s"}]}', version[uri], uri, content), true)
 end
 
 -- alias functions for any kind of change to the document
@@ -142,13 +142,13 @@ function onBufferOpen(buf)
 	local send = withSend(filetype)
 	local uri = getUriFromBuf(buf)
 	local content = util.String(buf:Bytes()):gsub("\\", "\\\\"):gsub("\n", "\\n"):gsub("\r", "\\r"):gsub('"', '\\"'):gsub("\t", "\\t")
-	send("textDocument/didOpen", fmt.Sprintf('{"textDocument": {"uri": "%s", "languageId": "%s", "version": 1, "text": "%s"}}', uri, filetype, content))
+	send("textDocument/didOpen", fmt.Sprintf('{"textDocument": {"uri": "%s", "languageId": "%s", "version": 1, "text": "%s"}}', uri, filetype, content), true)
 end
 
 function sendNext(filetype)
 	if #queue[filetype] > 0 then
 		local msg = table.remove(queue[filetype], 1)
-		micro.Log("send", filetype, "sending", method)
+		micro.Log("send", filetype, "sending", msg)
 		shell.JobSend(cmd[filetype], msg)
 		if msg:find('"method": "initialized"') then
 			sendNext(filetype)
@@ -262,7 +262,7 @@ function hoverActionResponse(buf, data)
 	if data.result and data.result.contents ~= nil and data.result.contents ~= "" then
 		if data.result.contents.value then
 			micro.InfoBar():Message(data.result.contents.value)
-		else
+		elseif #data.result.contents > 0 then
 			micro.InfoBar():Message(data.result.contents[1].value)
 		end
 	end

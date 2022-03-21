@@ -262,7 +262,7 @@ function hoverActionResponse(buf, data)
 	if data.result and data.result.contents ~= nil and data.result.contents ~= "" then
 		if data.result.contents.value then
 			micro.InfoBar():Message(data.result.contents.value)
-		else
+		elseif #data.result.contents > 0 then
 			micro.InfoBar():Message(data.result.contents[1].value)
 		end
 	end

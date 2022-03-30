@@ -67,19 +67,22 @@ function startServers()
 		micro.Log("Starting server", part[1])
 		cmd[part[1]] = shell.JobSpawn(runCmd, args, onStdout(part[1]), onStderr, onExit, {})
 		currentAction = { method = "initialize" }
-		send(currentAction.method, fmt.Sprintf('{"processId": %.0f, "rootUri": "%s", "initializationOptions": %s, "capabilities": {"textDocument": {"hover": {"contentFormat": ["plaintext", "markdown"]}, "publishDiagnostics": {"relatedInformation": false, "versionSupport": false, "codeDescriptionSupport": true, "dataSupport": true}, "signatureHelp": {"signatureInformation": {"documentationFormat": ["plaintext", "markdown"]}}}}}', os.Getpid(), rootUri, initOptions))
+		send(currentAction.method, fmt.Sprintf('{"processId": %.0f, "rootUri": "%s", "workspaceFolders": [{"name": "root", "uri": "%s"}], "initializationOptions": %s, "capabilities": {"textDocument": {"hover": {"contentFormat": ["plaintext", "markdown"]}, "publishDiagnostics": {"relatedInformation": false, "versionSupport": false, "codeDescriptionSupport": true, "dataSupport": true}, "signatureHelp": {"signatureInformation": {"documentationFormat": ["plaintext", "markdown"]}}}}}', os.Getpid(), rootUri, rootUri, initOptions))
 		send("initialized", "{}", true)
 	end
 end
 
 function init()
 	config.RegisterGlobalOption("lsp", "server", "")
+	config.RegisterGlobalOption("lsp", "formatOnSave", "")
 	config.MakeCommand("hover", hoverAction, config.NoComplete)
 	config.MakeCommand("definition", definitionAction, config.NoComplete)
 	config.MakeCommand("lspcompletion", completionAction, config.NoComplete)
+	config.MakeCommand("format", formatAction, config.NoComplete)
 
 	config.TryBindKey("Alt-k", "command:hover", false)
 	config.TryBindKey("Alt-d", "command:definition", false)
+	config.TryBindKey("Alt-f", "command:format", false)
 	config.TryBindKey("CtrlSpace", "command:lspcompletion", false)
 	
 	-- @TODO register additional actions here
@@ -132,6 +135,15 @@ function onRedo(bp) onRune(bp); end
 function onIndentSelection(bp) onRune(bp); end
 function onPaste(bp) onRune(bp); end
 function onSave(bp) onRune(bp); end
+
+function preSave(bp)
+	if config.GetGlobalOption("lsp.formatOnSave") then
+		onRune(bp)
+		formatAction(bp, function ()
+			bp:Save()
+		end)
+	end
+end
 
 function onBufferOpen(buf)
 	local filetype = buf:FileType()
@@ -360,6 +372,42 @@ function completionActionResponse(bp, data)
 		end
 	end
 	micro.InfoBar():Message(msg)
+end
+
+function formatAction(bp, callback)
+	local filetype = bp.Buf:FileType()
+	if cmd[filetype] == nil then return; end
+	local send = withSend(filetype)
+	local file = bp.Buf.AbsPath
+
+	currentAction = { method = "textDocument/formatting", response = formatActionResponse(callback) }
+	send(currentAction.method, fmt.Sprintf('{"textDocument": {"uri": "file://%s"}, "options": {"tabSize": 4, "insertSpaces": true}}', file))
+end
+
+function formatActionResponse(callback)
+	return function (bp, data)
+		if data.result == nil then return; end
+		local edits = data.result
+		table.sort(edits, function (left, right)
+			return left.range['end'].line > right.range['end'].line or left.range['end'].line == right.range['end'].line and left.range['end'].character > right.range['end'].character
+		end)
+
+		local xy = buffer.Loc(bp.Cursor.X, bp.Cursor.Y)
+		for _idx, edit in ipairs(edits) do
+			rangeStart = buffer.Loc(edit.range.start.character, edit.range.start.line)
+			rangeEnd = buffer.Loc(edit.range['end'].character, edit.range['end'].line)
+			bp.Cursor:GotoLoc(rangeStart)
+			bp.Cursor:SetSelectionStart(rangeStart)
+			bp.Cursor:SetSelectionEnd(rangeEnd)
+			bp.Cursor:DeleteSelection()
+			bp.Cursor:ResetSelection()
+			bp.Buf:insert(rangeStart, edit.newText)
+		end
+		bp.Cursor:GotoLoc(xy)
+		if callback ~= nil then
+			callback(bp)
+		end
+	end
 end
 
 --

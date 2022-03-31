@@ -389,7 +389,8 @@ function formatActionResponse(callback)
 		if data.result == nil then return; end
 		local edits = data.result
 		table.sort(edits, function (left, right)
-			return left.range['end'].line > right.range['end'].line or left.range['end'].line == right.range['end'].line and left.range['end'].character > right.range['end'].character
+			return left.range['end'].line > right.range['end'].line or 
+				left.range['end'].line == right.range['end'].line and left.range['end'].character > right.range['end'].character
 		end)
 
 		local xy = buffer.Loc(bp.Cursor.X, bp.Cursor.Y)
@@ -404,6 +405,10 @@ function formatActionResponse(callback)
 			bp.Buf:insert(rangeStart, edit.newText)
 		end
 		bp.Cursor:GotoLoc(xy)
+		if len(edits) > 0 then
+			onRune(bp)
+		end
+		
 		if callback ~= nil then
 			callback(bp)
 		end

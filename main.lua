@@ -405,7 +405,7 @@ function formatActionResponse(callback)
 			bp.Buf:insert(rangeStart, edit.newText)
 		end
 		bp.Cursor:GotoLoc(xy)
-		if len(edits) > 0 then
+		if #edits > 0 then
 			onRune(bp)
 		end
 		

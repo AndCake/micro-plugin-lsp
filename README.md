@@ -10,11 +10,13 @@ Currently implemented methods:
 * textDocument/hover
 * textDocument/definition
 * textDocument/completion
+* textDocument/formatting
 
 If possible, this plugin will register the following shortcuts:
 
 - Alt-k for hover
 - Alt-d for definition lookup
+- Alt-f for formatting
 - Ctrl-space for completion
 
 Installation
@@ -35,11 +37,12 @@ Example:
 
 ```
 {
-	"lsp.server": "python=pyls,go=gopls,typescript=deno lsp={\"importMap\": \"./import_map.json\"}"
+	"lsp.server": "python=pyls,go=gopls,typescript=deno lsp={\"importMap\": \"./import_map.json\"}",
+	"lsp.formatOnSave": true
 }
 ```
 
-The format for the value is a comma-separated list for each file type you want to boot up a language server:
+The format for the `lsp.server` value is a comma-separated list for each file type you want to boot up a language server:
 
 ```
 <file type>=<executable with arguments where necessary>[=<initialization options passed to language server>][,...]

@@ -1,14 +1,14 @@
 [{
-  "Name": "LSP",
+  "Name": "lsp",
   "Description": "Generic LSP Client for Micro",
-  "Website": "https://github.com/user/plugin",
+  "Website": "https://github.com/AndCake/micro-plugin-lsp",
   "Tags": ["lsp"],
   "Versions": [
     {
-      "Version": "1.0.0",
-      "Url": "https://github.com/user/plugin/archive/v1.0.0.zip",
+      "Version": "0.4.1",
+      "Url": "https://github.com/AndCake/micro-plugin-lsp/archive/v0.4.1.zip",
       "Require": {
-        "micro": ">=1.0.3"
+        "micro": ">=2.0.10"
       }
     }
   ]

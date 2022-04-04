@@ -1,3 +1,5 @@
+VERSION = "0.4.1"
+
 local micro = import("micro")
 local config = import("micro/config")
 local shell = import("micro/shell")
@@ -53,7 +55,8 @@ end
 function startServers()
 	local wd, _ = os.Getwd()
 	rootUri = fmt.Sprintf("file://%s", wd)
-	local server = mysplit(config.GetGlobalOption("lsp.server") or '', ",")
+	local envFallback, _ = os.Getenv("MICRO_LSP")
+	local server = mysplit(config.GetGlobalOption("lsp.server") or envFallback or '', ",")
 	for i in pairs(server) do
 		local part = mysplit(server[i], "=")
 		local run = mysplit(part[2], "%s")
@@ -74,7 +77,7 @@ end
 
 function init()
 	config.RegisterGlobalOption("lsp", "server", "")
-	config.RegisterGlobalOption("lsp", "formatOnSave", "")
+	config.RegisterGlobalOption("lsp", "formatOnSave", true)
 	config.MakeCommand("hover", hoverAction, config.NoComplete)
 	config.MakeCommand("definition", definitionAction, config.NoComplete)
 	config.MakeCommand("lspcompletion", completionAction, config.NoComplete)

@@ -87,7 +87,9 @@ function init()
 	config.TryBindKey("Alt-d", "command:definition", false)
 	config.TryBindKey("Alt-f", "command:format", false)
 	config.TryBindKey("CtrlSpace", "command:lspcompletion", false)
-	
+
+	config.AddRuntimeFile("lsp", config.RTHelp, "help/lsp.md")
+		
 	-- @TODO register additional actions here
 end
 

@@ -57,7 +57,7 @@ function startServers()
 	rootUri = fmt.Sprintf("file://%s", wd)
 	local fallback, _ = os.Getenv("MICRO_LSP")
 	if ("" == fallback) then
-		fallback = 'python=pylsp,go=gopls,typescript=deno lsp={"importMap": "./import_map.json"}'
+		fallback = 'python=pylsp,go=gopls,typescript=deno,rust=rls,lua=lua-lsp lsp={"importMap": "./import_map.json"}'
 	end
 	local server = mysplit(config.GetGlobalOption("lsp.server") or fallback, ",")
 	for i in pairs(server) do

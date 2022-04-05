@@ -8,7 +8,7 @@
       "Version": "0.4.1",
       "Url": "https://github.com/AndCake/micro-plugin-lsp/archive/v0.4.1.zip",
       "Require": {
-        "micro": ">=2.0.10"
+        "micro": ">=2.0.8"
       }
     }
   ]

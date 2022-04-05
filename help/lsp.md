@@ -10,6 +10,8 @@ This help page can be viewed in Micro editor with Ctrl-E 'help lsp'
 - Show function signature on status bar (alt-K) (textDocument/hover)
 - Open function definition in a new tab (alt-D) (textDocument/definition)
 - Format document (alt-F) (textDocument/formatting)
+- Show references to the current symbol in a buffer (alt-R) (textDocument/references), 
+  pressing return on the reference line, the reference's location is opened in a new tab
 
 There is initial support for completion (ctrl-space) (textDocument/completion).
 

@@ -82,10 +82,12 @@ function init()
 	config.MakeCommand("definition", definitionAction, config.NoComplete)
 	config.MakeCommand("lspcompletion", completionAction, config.NoComplete)
 	config.MakeCommand("format", formatAction, config.NoComplete)
+	config.MakeCommand("references", referencesAction, config.NoComplete)
 
 	config.TryBindKey("Alt-k", "command:hover", false)
 	config.TryBindKey("Alt-d", "command:definition", false)
 	config.TryBindKey("Alt-f", "command:format", false)
+	config.TryBindKey("Alt-r", "command:references", false)
 	config.TryBindKey("CtrlSpace", "command:lspcompletion", false)
 
 	config.AddRuntimeFile("lsp", config.RTHelp, "help/lsp.md")
@@ -140,6 +142,22 @@ function onRedo(bp) onRune(bp); end
 function onIndentSelection(bp) onRune(bp); end
 function onPaste(bp) onRune(bp); end
 function onSave(bp) onRune(bp); end
+
+function preInsertNewline(bp)
+	if bp.Buf.Path == "References found" then
+		local cur = bp.Buf:GetActiveCursor()
+		cur:SelectLine()
+		local data = util.String(cur:GetSelection())
+		local file, line, character = data:match("(./[^:]+):([^:]+):([^:]+)")
+		local doc, _ = file:gsub("^file://", "")
+		buf, _ = buffer.NewBufferFromFile(doc)
+		bp:AddTab()
+		micro.CurPane():OpenBuffer(buf)
+		buf:GetActiveCursor():GotoLoc(buffer.Loc(character * 1, line * 1))
+		micro.CurPane():Center()
+		return false
+	end
+end
 
 function preSave(bp)
 	if config.GetGlobalOption("lsp.formatOnSave") then
@@ -307,12 +325,12 @@ function definitionActionResponse(bp, data)
 		results = { results }
 	end
 	if #results <= 0 then return; end
-	local doc = (results[1].uri or results[1].targetUri):gsub("^file://", "")
+	local uri = (results[1].uri or results[1].targetUri)
+	local doc = uri:gsub("^file://", "")
 	local buf = bp.Buf
 	if file ~= doc then
 		-- it's from a different file, so open it as a new tab
-		-- @TODO figure out a way to remove the root URI from the doc path (to shorten the file name displayed in the tab)
-		buf, _ = buffer.NewBufferFromFile(doc)
+		buf, _ = buffer.NewBufferFromFile("." .. uri:sub(#rootUri + 1, #uri))
 		bp:AddTab()
 		micro.CurPane():OpenBuffer(buf)
 	end
@@ -432,6 +450,37 @@ function formatActionResponse(callback)
 			callback(bp)
 		end
 	end
+end
+
+-- the references action request and response
+function referencesAction(bp)
+	local filetype = bp.Buf:FileType()	
+	if cmd[filetype] == nil then return; end
+	
+	local send = withSend(filetype)
+	local file = bp.Buf.AbsPath
+	local line = bp.Buf:GetActiveCursor().Y
+	local char = bp.Buf:GetActiveCursor().X
+	currentAction = { method = "textDocument/references", response = referencesActionResponse }
+	send(currentAction.method, fmt.Sprintf('{"textDocument": {"uri": "file://%s"}, "position": {"line": %.0f, "character": %.0f}, "context": {"includeDeclaration":true}}', file, line, char))
+end
+
+function referencesActionResponse(bp, data)
+	if data.result == nil then return; end
+	local results = data.result or data.partialResult
+	if results == nil or #results <= 0 then return; end
+
+	local file = bp.Buf.AbsPath
+	
+	local msg = ''
+	for _idx, ref in ipairs(results) do
+		if msg ~= '' then msg = msg .. '\n'; end
+		local doc = (ref.uri or ref.targetUri)
+		msg = msg .. "." .. doc:sub(#rootUri + 1, #doc) .. ":" .. ref.range.start.line .. ":" .. ref.range.start.character
+	end
+
+	local logBuf = buffer.NewBuffer(msg, "References found")
+	local splitBP = bp:HSplitBuf(logBuf)
 end
 
 --

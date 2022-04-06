@@ -12,12 +12,14 @@ Currently implemented methods:
 - textDocument/definition
 - textDocument/completion
 - textDocument/formatting
+- textDocument/references
 
 If possible, this plugin will register the following shortcuts:
 
 - Alt-k for hover
 - Alt-d for definition lookup
 - Alt-f for formatting
+- Alt-r for looking up references
 - Ctrl-space for completion
 
 ## Installation

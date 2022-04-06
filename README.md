@@ -63,6 +63,12 @@ export MICRO_LSP='python=pyls,go=gopls,typescript=deno lsp={"importMap":"import_
 The environment variable is used as a fallback if the `lsp.server` option is not
 defined.
 
+If this environment variable is also not present, then the plugin falls back to the following settings:
+
+```
+python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,rust=rls,lua=lua-lsp
+```
+
 ## Testing
 
 This plugin has been tested briefly with the following language servers:

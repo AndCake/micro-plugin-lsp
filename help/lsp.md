@@ -55,6 +55,12 @@ If your lsp.server settings are autoremoved, you can
 
     $ export MICRO_LSP='python=pylsp,go=gopls,typescript=deno lsp={"importMap":"import_map.json"},rust=rls'
 
+The lsp.server default settings (if no others are defined) are:
+
+```
+python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,rust=rls,lua=lua-lsp
+```
+
 ## Install Language Server
 
 To support each language, LSP plugin uses language servers. To use LSP plugin,

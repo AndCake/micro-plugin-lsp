@@ -1,4 +1,4 @@
-VERSION = "0.4.4"
+VERSION = "0.4.3"
 
 local micro = import("micro")
 local config = import("micro/config")
@@ -57,7 +57,7 @@ function startServers()
 	rootUri = fmt.Sprintf("file://%s", wd)
 	local fallback, _ = os.Getenv("MICRO_LSP")
 	if ("" == fallback) then
-		fallback = 'python=pylsp,go=gopls,typescript=deno,rust=rls,lua=lua-lsp lsp={"importMap": "./import_map.json"}'
+		fallback = 'python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,rust=rls,lua=lua-lsp'
 	end
 	local server = mysplit(config.GetGlobalOption("lsp.server") or fallback, ",")
 	for i in pairs(server) do

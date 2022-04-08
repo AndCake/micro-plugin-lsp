@@ -274,12 +274,10 @@ end
 
 function onStderr(text)
 	micro.Log("ONSTDERR", text)
-	micro.InfoBar():Error(text)
 end
 
 function onExit(str)
 	micro.Log("ONEXIT", text)
-	micro.InfoBar():Error(str)
 end
 
 -- the actual hover action request and response

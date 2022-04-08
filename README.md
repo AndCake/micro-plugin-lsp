@@ -51,19 +51,14 @@ type you want to boot up a language server:
 <file type>=<executable with arguments where necessary>[=<initialization options passed to language server>][,...]
 ```
 
-If you encounter an issue whereby the `lsp.server` settings configuration is
-auto-removed when you change any other configuration option, you can use an
-environment variable called `MICRO_LSP` to define the same information. You can
-add a line such as the following to your shell profile (e.g. .bashrc):
+You can also use an environment variable called `MICRO_LSP` to define the same information. If set, it will override the `lsp.server` from the `settings.json`.
+You can add a line such as the following to your shell profile (e.g. .bashrc):
 
 ```
 export MICRO_LSP='python=pyls,go=gopls,typescript=deno lsp={"importMap":"import_map.json"},rust=rls'
 ```
 
-The environment variable is used as a fallback if the `lsp.server` option is not
-defined.
-
-If this environment variable is also not present, then the plugin falls back to the following settings:
+If neither the MICRO_LSP nor the lsp.server is set, then the plugin falls back to the following settings:
 
 ```
 python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,rust=rls,lua=lua-lsp

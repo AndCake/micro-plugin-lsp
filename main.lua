@@ -15,6 +15,7 @@ local id = {}
 local queue = {}
 local version = {}
 local currentAction = {}
+local capabilities = {}
 local filetype = ''
 local rootUri = ''
 local message = ''
@@ -72,8 +73,8 @@ function startServers()
 		queue[part[1]] = {}
 		micro.Log("Starting server", part[1])
 		cmd[part[1]] = shell.JobSpawn(runCmd, args, onStdout(part[1]), onStderr, onExit, {})
-		currentAction = { method = "initialize" }
-		send(currentAction.method, fmt.Sprintf('{"processId": %.0f, "rootUri": "%s", "workspaceFolders": [{"name": "root", "uri": "%s"}], "initializationOptions": %s, "capabilities": {"textDocument": {"hover": {"contentFormat": ["plaintext", "markdown"]}, "publishDiagnostics": {"relatedInformation": false, "versionSupport": false, "codeDescriptionSupport": true, "dataSupport": true}, "signatureHelp": {"signatureInformation": {"documentationFormat": ["plaintext", "markdown"]}}}}}', os.Getpid(), rootUri, rootUri, initOptions))
+		currentAction[part[1]] = { method = "initialize" }
+		send(currentAction[part[1]].method, fmt.Sprintf('{"processId": %.0f, "rootUri": "%s", "workspaceFolders": [{"name": "root", "uri": "%s"}], "initializationOptions": %s, "capabilities": {"textDocument": {"hover": {"contentFormat": ["plaintext", "markdown"]}, "publishDiagnostics": {"relatedInformation": false, "versionSupport": false, "codeDescriptionSupport": true, "dataSupport": true}, "signatureHelp": {"signatureInformation": {"documentationFormat": ["plaintext", "markdown"]}}}}}', os.Getpid(), rootUri, rootUri, initOptions))
 		send("initialized", "{}", true)
 	end
 end
@@ -130,6 +131,13 @@ function onRune(bp, r)
 	-- increase change version
 	version[uri] = (version[uri] or 0) + 1
 	send("textDocument/didChange", fmt.Sprintf('{"textDocument": {"version": %.0f, "uri": "%s"}, "contentChanges": [{"text": "%s"}]}', version[uri], uri, content), true)
+	if r and capabilities[filetype] then
+		if capabilities[filetype].completionProvider and capabilities[filetype].completionProvider.triggerCharacters and contains(capabilities[filetype].completionProvider.triggerCharacters, r) then
+			completionAction(bp)
+		elseif capabilities[filetype].signatureHelpProvider and capabilities[filetype].signatureHelpProvider.triggerCharacters and contains(capabilities[filetype].signatureHelpProvider.triggerCharacters, r) then
+			definitionAction(bp)
+		end
+	end
 end
 
 -- alias functions for any kind of change to the document
@@ -142,6 +150,7 @@ function onDeleteLine(bp) onRune(bp); end
 function onDelete(bp) onRune(bp); end
 function onUndo(bp) onRune(bp); end
 function onRedo(bp) onRune(bp); end
+function onIndent(bp) onRune(bp); end
 function onIndentSelection(bp) onRune(bp); end
 function onPaste(bp) onRune(bp); end
 function onSave(bp) onRune(bp); end
@@ -192,6 +201,13 @@ function sendNext(filetype)
 			sendNext(filetype)
 		end
 	end
+end
+
+function contains(list, x)
+	for _, v in pairs(list) do
+		if v == x then return true; end
+	end
+	return false
 end
 
 function string.starts(String, Start)
@@ -247,12 +263,11 @@ function onStdout(filetype)
 					bp:AddMessage(msg)
 				end
 			end
-		elseif currentAction and currentAction.method and currentAction.response and text:find('"jsonrpc":') then
+		elseif currentAction[filetype] and currentAction[filetype].method and currentAction[filetype].response and data.jsonrpc then
 			-- react to custom action event
-			local data = text:parse()
 			local bp = micro.CurPane()
-			currentAction.response(bp, data)
-			currentAction = {}
+			currentAction[filetype].response(bp, data)
+			currentAction[filetype] = {}
 		elseif data.method == "window/showMessage" or data.method == "window\\/showMessage" then
 			if filetype == micro.CurPane().Buf:FileType() then
 				micro.InfoBar():Message(data.params.message)
@@ -261,15 +276,16 @@ function onStdout(filetype)
 			end
 		elseif data.method == "window/logMessage" or data.method == "window\\/logMessage" then
 			micro.Log(data.params.message)
-		elseif currentAction.method == "initialize" then
-			currentAction = {}
+		elseif currentAction[filetype] and currentAction[filetype].method == "initialize" then
+			currentAction[filetype] = {}
+			capabilities[filetype] = data.result.capabilities or {}
 		elseif message:starts("Content-Length:") then
 			if message:find('"') and not message:find('"result":null') then
-				micro.Log("Unhandled message", filetype, message)
+				micro.Log("Unhandled message 1", filetype, message)
 			end
 		else
 			-- enable for debugging purposes
-			micro.Log("Unhandled message", filetype, message)
+			micro.Log("Unhandled message 2", filetype, message)
 		end
 		sendNext(filetype)
 	end
@@ -281,7 +297,7 @@ function onStderr(text)
 end
 
 function onExit(str)
-	micro.Log("ONEXIT", text)
+	micro.Log("ONEXIT", str)
 end
 
 -- the actual hover action request and response
@@ -293,8 +309,8 @@ function hoverAction(bp)
 		local file = bp.Buf.AbsPath
 		local line = bp.Buf:GetActiveCursor().Y
 		local char = bp.Buf:GetActiveCursor().X
-		currentAction = { method = "textDocument/hover", response = hoverActionResponse }
-		send(currentAction.method, fmt.Sprintf('{"textDocument": {"uri": "file://%s"}, "position": {"line": %.0f, "character": %.0f}}', file, line, char))
+		currentAction[filetype] = { method = "textDocument/hover", response = hoverActionResponse }
+		send(currentAction[filetype].method, fmt.Sprintf('{"textDocument": {"uri": "file://%s"}, "position": {"line": %.0f, "character": %.0f}}', file, line, char))
 	end
 end
 
@@ -317,8 +333,8 @@ function definitionAction(bp)
 	local file = bp.Buf.AbsPath
 	local line = bp.Buf:GetActiveCursor().Y
 	local char = bp.Buf:GetActiveCursor().X
-	currentAction = { method = "textDocument/definition", response = definitionActionResponse }
-	send(currentAction.method, fmt.Sprintf('{"textDocument": {"uri": "file://%s"}, "position": {"line": %.0f, "character": %.0f}}', file, line, char))
+	currentAction[filetype] = { method = "textDocument/definition", response = definitionActionResponse }
+	send(currentAction[filetype].method, fmt.Sprintf('{"textDocument": {"uri": "file://%s"}, "position": {"line": %.0f, "character": %.0f}}', file, line, char))
 end
 
 function definitionActionResponse(bp, data)
@@ -358,8 +374,8 @@ function completionAction(bp)
 		completionCursor = 0
 	end
 	lastCompletion = {file, line, char}
-	currentAction = { method = "textDocument/completion", response = completionActionResponse }
-	send(currentAction.method, fmt.Sprintf('{"textDocument": {"uri": "file://%s"}, "position": {"line": %.0f, "character": %.0f}}', file, line, char))
+	currentAction[filetype] = { method = "textDocument/completion", response = completionActionResponse }
+	send(currentAction[filetype].method, fmt.Sprintf('{"textDocument": {"uri": "file://%s"}, "position": {"line": %.0f, "character": %.0f}}', file, line, char))
 end
 
 function completionActionResponse(bp, data)
@@ -368,6 +384,9 @@ function completionActionResponse(bp, data)
 	if results.items then
 		results = results.items
 	end
+	table.sort(results, function (left, right)
+		return (left.sortText or left.label) < (right.sortText or right.label)
+	end)
 	entry = results[(completionCursor % #results) + 1]
 	if entry == nil then return; end
 
@@ -382,10 +401,50 @@ function completionActionResponse(bp, data)
 		bp.Cursor:SetSelectionEnd(xy)
 		bp.Cursor:DeleteSelection()
 		bp.Cursor:ResetSelection()
+	elseif capabilities[bp.Buf:FileType()] and capabilities[bp.Buf:FileType()].completionProvider and capabilities[bp.Buf:FileType()].completionProvider.triggerCharacters then
+		local cur = bp.Buf:GetActiveCursor()
+		cur:SelectLine()
+		local lineContent = util.String(cur:GetSelection())
+		local reversed = string.reverse(lineContent:gsub("\r?\n$", ""))
+		local triggerChars = capabilities[bp.Buf:FileType()].completionProvider.triggerCharacters
+		local found = false
+		for i = 1,#reversed,1 do
+			local char = reversed:sub(i,i)
+			-- try to find a trigger character or any other non-word character
+			if contains(triggerChars, char) or contains({" ", ":", "/", "-", "\t", ";"}, char) then
+				found = true
+				start = buffer.Loc(#reversed - (i - 1), bp.Cursor.Y)
+				bp.Cursor:SetSelectionStart(start)
+				bp.Cursor:SetSelectionEnd(xy)
+				bp.Cursor:DeleteSelection()
+				bp.Cursor:ResetSelection()
+				break
+			end
+		end
+		if not found then
+			-- we found nothing - so assume we need the beginning of the line
+			if reversed:starts(" ") or reversed:starts("\t") then
+				-- if we end with some indentation, keep it
+				start = buffer.Loc(#lineContent, bp.Cursor.Y)
+			else
+				start = buffer.Loc(0, bp.Cursor.Y)
+			end
+			bp.Cursor:SetSelectionStart(start)
+			bp.Cursor:SetSelectionEnd(xy)
+			bp.Cursor:DeleteSelection()
+			bp.Cursor:ResetSelection()
+		end
 	end
 	bp.Buf:insert(start, entry.textEdit and entry.textEdit.newText or entry.label)
-	bp.Cursor:GotoLoc(start)
-	bp.Cursor:SetSelectionStart(start)
+	if entry.textEdit then
+		bp.Cursor:GotoLoc(start)
+		bp.Cursor:SetSelectionStart(start)
+	else
+		-- if we had to calculate everything outselves
+		-- go back to the original location
+		bp.Cursor:GotoLoc(xy)
+		bp.Cursor:SetSelectionStart(xy)
+	end
 	bp.Cursor:SetSelectionEnd(buffer.Loc(start.X + #(entry.textEdit and entry.textEdit.newText or entry.label), start.Y))
 
 	local msg = ''
@@ -408,8 +467,8 @@ function formatAction(bp, callback)
 	local send = withSend(filetype)
 	local file = bp.Buf.AbsPath
 
-	currentAction = { method = "textDocument/formatting", response = formatActionResponse(callback) }
-	send(currentAction.method, fmt.Sprintf('{"textDocument": {"uri": "file://%s"}, "options": {"tabSize": 4, "insertSpaces": true}}', file))
+	currentAction[filetype] = { method = "textDocument/formatting", response = formatActionResponse(callback) }
+	send(currentAction[filetype].method, fmt.Sprintf('{"textDocument": {"uri": "file://%s"}, "options": {"tabSize": 4, "insertSpaces": true}}', file))
 end
 
 function formatActionResponse(callback)
@@ -466,8 +525,8 @@ function referencesAction(bp)
 	local file = bp.Buf.AbsPath
 	local line = bp.Buf:GetActiveCursor().Y
 	local char = bp.Buf:GetActiveCursor().X
-	currentAction = { method = "textDocument/references", response = referencesActionResponse }
-	send(currentAction.method, fmt.Sprintf('{"textDocument": {"uri": "file://%s"}, "position": {"line": %.0f, "character": %.0f}, "context": {"includeDeclaration":true}}', file, line, char))
+	currentAction[filetype] = { method = "textDocument/references", response = referencesActionResponse }
+	send(currentAction[filetype].method, fmt.Sprintf('{"textDocument": {"uri": "file://%s"}, "position": {"line": %.0f, "character": %.0f}, "context": {"includeDeclaration":true}}', file, line, char))
 end
 
 function referencesActionResponse(bp, data)

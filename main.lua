@@ -58,10 +58,11 @@ function startServers()
 	rootUri = fmt.Sprintf("file://%s", wd)
 	local envSettings, _ = os.Getenv("MICRO_LSP")
 	local settings = config.GetGlobalOption("lsp.server")
+	local fallback = "python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,rust=rls,lua=lua-lsp"
 	if envSettings ~= nil and #envSettings > 0 then
 		settings = envSettings
 	end
-	local server = mysplit(settings or 'python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,rust=rls,lua=lua-lsp', ",")
+	local server = mysplit(settings or fallback, ",")
 	for i in pairs(server) do
 		local part = mysplit(server[i], "=")
 		local run = mysplit(part[2], "%s")

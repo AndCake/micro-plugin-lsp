@@ -55,11 +55,12 @@ end
 function startServers()
 	local wd, _ = os.Getwd()
 	rootUri = fmt.Sprintf("file://%s", wd)
-	local fallback, _ = os.Getenv("MICRO_LSP")
-	if ("" == fallback) then
-		fallback = 'python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,rust=rls,lua=lua-lsp'
+	local envSettings, _ = os.Getenv("MICRO_LSP")
+	local settings = config.GetGlobalOption("lsp.server")
+	if envSettings ~= nil and #envSettings > 0 then
+		settings = envSettings
 	end
-	local server = mysplit(config.GetGlobalOption("lsp.server") or fallback, ",")
+	local server = mysplit(settings or 'python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,rust=rls,lua=lua-lsp', ",")
 	for i in pairs(server) do
 		local part = mysplit(server[i], "=")
 		local run = mysplit(part[2], "%s")
@@ -71,7 +72,7 @@ function startServers()
 		id[part[1]] = 0
 		queue[part[1]] = {}
 		micro.Log("Starting server", part[1])
-		cmd[part[1]] = shell.JobSpawn(runCmd, args, onStdout(part[1]), onStderr, onExit, {})
+		cmd[part[1]] = shell.JobSpawn(runCmd, args, onStdout(part[1]), onStderr, onExit(part[1]), {})
 		currentAction = { method = "initialize" }
 		send(currentAction.method, fmt.Sprintf('{"processId": %.0f, "rootUri": "%s", "workspaceFolders": [{"name": "root", "uri": "%s"}], "initializationOptions": %s, "capabilities": {"textDocument": {"hover": {"contentFormat": ["plaintext", "markdown"]}, "publishDiagnostics": {"relatedInformation": false, "versionSupport": false, "codeDescriptionSupport": true, "dataSupport": true}, "signatureHelp": {"signatureInformation": {"documentationFormat": ["plaintext", "markdown"]}}}}}', os.Getpid(), rootUri, rootUri, initOptions))
 		send("initialized", "{}", true)
@@ -79,8 +80,9 @@ function startServers()
 end
 
 function init()
-	config.RegisterGlobalOption("lsp", "server", "")
-	config.RegisterGlobalOption("lsp", "formatOnSave", true)
+	config.RegisterCommonOption("lsp", "server", "python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,rust=rls,lua=lua-lsp")
+	config.RegisterCommonOption("lsp", "formatOnSave", true)
+	
 	config.MakeCommand("hover", hoverAction, config.NoComplete)
 	config.MakeCommand("definition", definitionAction, config.NoComplete)
 	config.MakeCommand("lspcompletion", completionAction, config.NoComplete)
@@ -280,8 +282,13 @@ function onStderr(text)
 	micro.InfoBar():Message(text)
 end
 
-function onExit(str)
-	micro.Log("ONEXIT", text)
+function onExit(filetype)
+	return function (str)
+		currentAction[filetype] = nil
+		cmd[filetype] = nil
+		queue[filetype] = nil
+		micro.Log("ONEXIT", filetype, text)
+	end
 end
 
 -- the actual hover action request and response

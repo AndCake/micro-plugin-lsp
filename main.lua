@@ -215,7 +215,6 @@ end
 
 function onStdout(filetype)
 	return function (text)
-		micro.Log("Received", filetype, text)
 		if text:starts("Content-Length:") then
 			message = text
 		else
@@ -255,7 +254,11 @@ function onStdout(filetype)
 			currentAction.response(bp, data)
 			currentAction = {}
 		elseif data.method == "window/showMessage" or data.method == "window\\/showMessage" then
-			micro.InfoBar():Message(data.params.message)
+			if filetype == micro.CurPane().Buf:FileType() then
+				micro.InfoBar():Message(data.params.message)
+			else
+				micro.Log(filetype .. " message " .. data.params.message)
+			end
 		elseif data.method == "window/logMessage" or data.method == "window\\/logMessage" then
 			micro.Log(data.params.message)
 		elseif currentAction.method == "initialize" then
@@ -274,6 +277,7 @@ end
 
 function onStderr(text)
 	micro.Log("ONSTDERR", text)
+	micro.InfoBar():Message(text)
 end
 
 function onExit(str)

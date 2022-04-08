@@ -15,6 +15,7 @@ local id = {}
 local queue = {}
 local version = {}
 local currentAction = {}
+local capabilities = {}
 local filetype = ''
 local rootUri = ''
 local message = ''
@@ -130,6 +131,11 @@ function onRune(bp, r)
 	-- increase change version
 	version[uri] = (version[uri] or 0) + 1
 	send("textDocument/didChange", fmt.Sprintf('{"textDocument": {"version": %.0f, "uri": "%s"}, "contentChanges": [{"text": "%s"}]}', version[uri], uri, content), true)
+	if r and capabilities[filetype] and capabilities[filetype].completionProvider and capabilities[filetype].completionProvider.triggerCharacters then
+		if contains(capabilities[filetype].completionProvider.triggerCharacters, r) then
+			completionAction(bp)
+		end
+	end
 end
 
 -- alias functions for any kind of change to the document
@@ -194,6 +200,13 @@ function sendNext(filetype)
 	end
 end
 
+function contains(list, x)
+	for _, v in pairs(list) do
+		if v == x then return true; end
+	end
+	return false
+end
+
 function string.starts(String, Start)
 	return string.sub(String, 1, #Start) == Start
 end
@@ -248,9 +261,8 @@ function onStdout(filetype)
 					bp:AddMessage(msg)
 				end
 			end
-		elseif currentAction and currentAction.method and currentAction.response and text:find('"jsonrpc":') then
+		elseif currentAction and currentAction.method and currentAction.response and message:find('"jsonrpc":') then
 			-- react to custom action event
-			local data = text:parse()
 			local bp = micro.CurPane()
 			currentAction.response(bp, data)
 			currentAction = {}
@@ -260,6 +272,7 @@ function onStdout(filetype)
 			micro.Log(data.params.message)
 		elseif currentAction.method == "initialize" then
 			currentAction = {}
+			capabilities[filetype] = data.result.capabilities or {}
 		elseif message:starts("Content-Length:") then
 			if message:find('"') and not message:find('"result":null') then
 				micro.Log("Unhandled message", filetype, message)
@@ -278,7 +291,7 @@ function onStderr(text)
 end
 
 function onExit(str)
-	micro.Log("ONEXIT", text)
+	micro.Log("ONEXIT", str)
 	micro.InfoBar():Error(str)
 end
 
@@ -366,6 +379,9 @@ function completionActionResponse(bp, data)
 	if results.items then
 		results = results.items
 	end
+	table.sort(results, function (left, right)
+		return left.sortText < right.sortText
+	end)
 	entry = results[(completionCursor % #results) + 1]
 	if entry == nil then return; end
 
@@ -380,10 +396,32 @@ function completionActionResponse(bp, data)
 		bp.Cursor:SetSelectionEnd(xy)
 		bp.Cursor:DeleteSelection()
 		bp.Cursor:ResetSelection()
+	elseif capabilities[bp.Buf:FileType()] and capabilities[bp.Buf:FileType()].completionProvider and capabilities[bp.Buf:FileType()].completionProvider.triggerCharacters then
+		local cur = bp.Buf:GetActiveCursor()
+		cur:SelectLine()
+		local lineContent = util.String(cur:GetSelection())
+		local reversed = string.reverse(lineContent)
+		local triggerChars = capabilities[bp.Buf:FileType()].completionProvider.triggerCharacters
+		for i = 1,#reversed,1 do
+			local char = reversed:sub(i,i)
+			if contains(triggerChars, char) then
+				start = buffer.Loc(#lineContent - (i - 1), bp.Cursor.Y)
+				bp.Cursor:SetSelectionStart(start)
+				bp.Cursor:SetSelectionEnd(xy)
+				bp.Cursor:DeleteSelection()
+				bp.Cursor:ResetSelection()
+				break
+			end
+		end
 	end
 	bp.Buf:insert(start, entry.textEdit and entry.textEdit.newText or entry.label)
-	bp.Cursor:GotoLoc(start)
-	bp.Cursor:SetSelectionStart(start)
+	if entry.textEdit then
+		bp.Cursor:GotoLoc(start)
+		bp.Cursor:SetSelectionStart(start)
+	else
+		bp.Cursor:GotoLoc(xy)
+		bp.Cursor:SetSelectionStart(xy)
+	end
 	bp.Cursor:SetSelectionEnd(buffer.Loc(start.X + #(entry.textEdit and entry.textEdit.newText or entry.label), start.Y))
 
 	local msg = ''

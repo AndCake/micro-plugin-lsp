@@ -1,4 +1,4 @@
-VERSION = "0.5.0"
+VERSION = "0.5.1"
 
 local micro = import("micro")
 local config = import("micro/config")
@@ -58,7 +58,7 @@ function startServers()
 	rootUri = fmt.Sprintf("file://%s", wd)
 	local envSettings, _ = os.Getenv("MICRO_LSP")
 	local settings = config.GetGlobalOption("lsp.server")
-	local fallback = "python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,rust=rls,lua=lua-lsp"
+	local fallback = "python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,markdown=deno lsp,json=deno lsp,jsonc=deno lsp,rust=rls,lua=lua-lsp"
 	if envSettings ~= nil and #envSettings > 0 then
 		settings = envSettings
 	end

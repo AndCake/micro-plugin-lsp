@@ -10,6 +10,9 @@ This help page can be viewed in Micro editor with Ctrl-E 'help lsp'
 - Show function signature on status bar (alt-K) (textDocument/hover)
 - Open function definition in a new tab (alt-D) (textDocument/definition)
 - Format document (alt-F) (textDocument/formatting)
+- Show references to the current symbol in a buffer (alt-R)
+  (textDocument/references), pressing return on the reference line, the
+  reference's location is opened in a new tab
 
 There is initial support for completion (ctrl-space) (textDocument/completion).
 
@@ -18,17 +21,18 @@ There is initial support for completion (ctrl-space) (textDocument/completion).
 Installation instructions for Go and Python are provided below. LSP Plugin has
 been briefly tested with
 
-- go: gopls
-- typescript, javascript (including JSX/TSX): deno
-- python: pyls and pylsp
-- rust: rls
-- lua: lua-lsp
+- go: [gopls](https://pkg.go.dev/golang.org/x/tools/gopls#section-readme)
+- markdown, JSON, typescript, javascript (including JSX/TSX):
+  [deno](https://deno.land/)
+- python: pyls and [pylsp](https://github.com/python-lsp/python-lsp-server)
+- rust: [rls](https://github.com/rust-lang/rls)
+- lua: [lua-lsp](https://github.com/Alloyed/lua-lsp)
 
 ## Install LSP plugin
 
     $ micro --plugin install lsp
 
-To enable LSP Plugin, you must add two lines to settings.json
+To configure the LSP Plugin, you can add two lines to settings.json
 
     $ micro settings.json
 
@@ -52,6 +56,12 @@ wish to use the Palantir version (last updated in 2020) instead, set
 If your lsp.server settings are autoremoved, you can
 
     $ export MICRO_LSP='python=pylsp,go=gopls,typescript=deno lsp={"importMap":"import_map.json"},rust=rls'
+
+The lsp.server default settings (if no others are defined) are:
+
+```
+python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,rust=rls,lua=lua-lsp
+```
 
 ## Install Language Server
 
@@ -100,6 +110,38 @@ Keep your cursor over Println, and press alt-d. The file defining Println opens.
 In this case, it's fmt/print.go. As Go reference documentation is in code
 comments, this is very convenient. You can navigate between tabs with atl-,
 (alt-comma) and alt-. (alt - full stop). To close the tab, press Ctrl-Q.
+
+### Markdown, JSON, Typescript, Javascript
+
+The Deno LSP server will provide full support for Typescript and Javascript.
+Additionally, it supports formatting for Markdown and JSON files. The
+installation of this is fairly straight forward:
+
+On Mac/Linux:
+
+    $ curl -fsSL https://deno.land/install.sh | sh
+
+On Powershell:
+
+    $ iwr https://deno.land/install.ps1 -useb | iex
+
+### typescript-language-server
+
+This LSP server will allow for Javascript as well as Typescript support. For
+using it, you first need to install it using NPM:
+
+    $ npm install -g typescript-language-server typescript
+
+Once it has been installed, you can use it like so:
+
+    $ micro hello.js
+
+Press ctrl-e and type in:
+
+    set lsp.server "python=pylsp,go=gopls,typescript=typescript-language-server --stdio,javascript=typescript-language-server --stdio,rust=rls,lua=lua-lsp"
+
+After you restarted micro, you can use the features for typescript and
+javascript accordingly.
 
 ### pylsp, Python language server
 
@@ -179,5 +221,9 @@ def square(x: int) -> int:
 [mypy - Optional Static Typing for Python](http://mypy-lang.org/)
 
 [rls - Rust Language Server](https://github.com/rust-lang/rls)
+
+[deno](https://deno.land/)
+
+[typescript-language-server](https://www.npmjs.com/package/typescript-language-server)
 
 [lua-lsp - A Lua language server](https://github.com/Alloyed/lua-lsp)

@@ -38,6 +38,13 @@
       "Require": {
         "micro": ">=2.0.8"
       }
+    },
+    {
+      "Version": "0.5.2",
+      "Url": "https://github.com/AndCake/micro-plugin-lsp/archive/v0.5.2.zip",
+      "Require": {
+        "micro": ">=2.0.8"
+      }
     }
   ]
 }]

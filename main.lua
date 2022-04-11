@@ -269,6 +269,7 @@ function onStdout(filetype)
 		elseif currentAction[filetype] and currentAction[filetype].method and currentAction[filetype].response and data.jsonrpc then
 			-- react to custom action event
 			local bp = micro.CurPane()
+			micro.Log(filetype .. " handling ", data)
 			currentAction[filetype].response(bp, data)
 			currentAction[filetype] = {}
 		elseif data.method == "window/showMessage" or data.method == "window\\/showMessage" then
@@ -386,23 +387,71 @@ function completionAction(bp)
 	send(currentAction[filetype].method, fmt.Sprintf('{"textDocument": {"uri": "file://%s"}, "position": {"line": %.0f, "character": %.0f}}', file, line, char))
 end
 
+table.filter = function(t, filterIter)
+  local out = {}
+
+  for k, v in pairs(t) do
+    if filterIter(v, k, t) then table.insert(out, v) end
+  end
+
+  return out
+end
+
 function completionActionResponse(bp, data)
 	local results = data.result
-	if results == nil then return; end
+	if results == nil then 
+		return
+	end
 	if results.items then
 		results = results.items
 	end
-	table.sort(results, function (left, right)
-		return (left.sortText or left.label) < (right.sortText or right.label)
-	end)
-	entry = results[(completionCursor % #results) + 1]
-	if entry == nil then return; end
-
+	
 	local xy = buffer.Loc(bp.Cursor.X, bp.Cursor.Y)
 	local start = xy
 	if bp.Cursor:HasSelection() then
 		bp.Cursor:DeleteSelection()
 	end
+
+	local found = false
+	local prefix = ""
+	if not results[1] or not results[1].textEdit then
+		if capabilities[bp.Buf:FileType()] and capabilities[bp.Buf:FileType()].completionProvider and capabilities[bp.Buf:FileType()].completionProvider.triggerCharacters then
+			local cur = bp.Buf:GetActiveCursor()
+			cur:SelectLine()
+			local lineContent = util.String(cur:GetSelection())
+			local reversed = string.reverse(lineContent:gsub("\r?\n$", ""))
+			local triggerChars = capabilities[bp.Buf:FileType()].completionProvider.triggerCharacters
+			for i = 1,#reversed,1 do
+				local char = reversed:sub(i,i)
+				-- try to find a trigger character or any other non-word character
+				if contains(triggerChars, char) or contains({" ", ":", "/", "-", "\t", ";"}, char) then
+					found = true
+					start = buffer.Loc(#reversed - (i - 1), bp.Cursor.Y)
+					bp.Cursor:SetSelectionStart(start)
+					bp.Cursor:SetSelectionEnd(xy)
+					prefix = util.String(cur:GetSelection())
+					bp.Cursor:DeleteSelection()
+					bp.Cursor:ResetSelection()
+					break
+				end
+			end
+		end
+		if prefix ~= "" then
+			results = table.filter(results, function (entry)
+				return entry.label:starts(prefix)
+			end)
+		end
+	end
+
+	table.sort(results, function (left, right)
+		return (left.sortText or left.label) < (right.sortText or right.label)
+	end)
+	
+	entry = results[(completionCursor % #results) + 1]
+	if entry == nil then 
+		return
+	end
+
 	if entry.textEdit then
 		start = buffer.Loc(entry.textEdit.range.start.character, entry.textEdit.range.start.line)
 		bp.Cursor:SetSelectionStart(start)
@@ -414,21 +463,7 @@ function completionActionResponse(bp, data)
 		cur:SelectLine()
 		local lineContent = util.String(cur:GetSelection())
 		local reversed = string.reverse(lineContent:gsub("\r?\n$", ""))
-		local triggerChars = capabilities[bp.Buf:FileType()].completionProvider.triggerCharacters
-		local found = false
-		for i = 1,#reversed,1 do
-			local char = reversed:sub(i,i)
-			-- try to find a trigger character or any other non-word character
-			if contains(triggerChars, char) or contains({" ", ":", "/", "-", "\t", ";"}, char) then
-				found = true
-				start = buffer.Loc(#reversed - (i - 1), bp.Cursor.Y)
-				bp.Cursor:SetSelectionStart(start)
-				bp.Cursor:SetSelectionEnd(xy)
-				bp.Cursor:DeleteSelection()
-				bp.Cursor:ResetSelection()
-				break
-			end
-		end
+
 		if not found then
 			-- we found nothing - so assume we need the beginning of the line
 			if reversed:starts(" ") or reversed:starts("\t") then

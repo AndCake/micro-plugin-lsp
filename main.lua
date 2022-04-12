@@ -228,8 +228,11 @@ function string.parse(text)
 	if fin ~= nil then
 		cleanedText = text:sub(fin)
 	end
-	data = json.parse(cleanedText)
-	return data
+	local status, res = pcall(json.parse, cleanedText)
+	if status then
+		return res
+	end
+	return false
 end
 
 function onStdout(filetype)
@@ -243,6 +246,9 @@ function onStdout(filetype)
 			return
 		end	
 		local data = message:parse()
+		if data == false then
+			return
+		end
 		if data.method == "workspace/configuration" then
 		    -- actually needs to respond with the same ID as the received JSON
 			local message = fmt.Sprintf('{"jsonrpc": "2.0", "id": %.0f, "result": [{"enable": true}]}', data.id)
@@ -414,12 +420,13 @@ function completionActionResponse(bp, data)
 
 	local found = false
 	local prefix = ""
+	local reversed = ""
 	if not results[1] or not results[1].textEdit then
 		if capabilities[bp.Buf:FileType()] and capabilities[bp.Buf:FileType()].completionProvider and capabilities[bp.Buf:FileType()].completionProvider.triggerCharacters then
 			local cur = bp.Buf:GetActiveCursor()
 			cur:SelectLine()
 			local lineContent = util.String(cur:GetSelection())
-			local reversed = string.reverse(lineContent:gsub("\r?\n$", ""))
+			reversed = string.reverse(lineContent:gsub("\r?\n$", ""):sub(1, xy.X))
 			local triggerChars = capabilities[bp.Buf:FileType()].completionProvider.triggerCharacters
 			for i = 1,#reversed,1 do
 				local char = reversed:sub(i,i)
@@ -449,6 +456,7 @@ function completionActionResponse(bp, data)
 	
 	entry = results[(completionCursor % #results) + 1]
 	if entry == nil then 
+		bp.Cursor:GotoLoc(xy)
 		return
 	end
 
@@ -459,16 +467,11 @@ function completionActionResponse(bp, data)
 		bp.Cursor:DeleteSelection()
 		bp.Cursor:ResetSelection()
 	elseif capabilities[bp.Buf:FileType()] and capabilities[bp.Buf:FileType()].completionProvider and capabilities[bp.Buf:FileType()].completionProvider.triggerCharacters then
-		local cur = bp.Buf:GetActiveCursor()
-		cur:SelectLine()
-		local lineContent = util.String(cur:GetSelection())
-		local reversed = string.reverse(lineContent:gsub("\r?\n$", ""))
-
 		if not found then
 			-- we found nothing - so assume we need the beginning of the line
 			if reversed:starts(" ") or reversed:starts("\t") then
 				-- if we end with some indentation, keep it
-				start = buffer.Loc(#lineContent, bp.Cursor.Y)
+				start = buffer.Loc(#reversed, bp.Cursor.Y)
 			else
 				start = buffer.Loc(0, bp.Cursor.Y)
 			end
@@ -662,7 +665,7 @@ json.null = {}  -- This is a one-off table to represent the null value.
 
 function json.parse(str, pos, end_delim)
   pos = pos or 1
-  if pos > #str then error('Reached unexpected end of input.') end
+  if pos > #str then error('Reached unexpected end of input.' .. str) end
   local pos = pos + #str:match('^%s*', pos)  -- Skip whitespace.
   local first = str:sub(pos, pos)
   if first == '{' then  -- Parse an object.

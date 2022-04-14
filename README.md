@@ -39,8 +39,9 @@ Example:
 
 ```
 {
-	"lsp.server": "python=pyls,go=gopls,typescript=deno lsp={\"importMap\": \"./import_map.json\"}",
-	"lsp.formatOnSave": true
+	"lsp.server": "python=pyls,go=gopls,typescript=deno lsp,rust=rls",
+	"lsp.formatOnSave": true,
+	"lsp.autocompleteDetails": false
 }
 ```
 
@@ -65,6 +66,9 @@ to the following settings:
 ```
 python=pylsp,go=gopls,rust=rls,lua=lua-lsp,typescript=deno lsp,javascript=deno lsp,markdown=deno lsp,json=deno lsp,jsonc=deno lsp
 ```
+
+The option `lsp.autocompleteDetails` allows for showing all auto-completions in
+a horizontally split buffer view.
 
 ## Testing
 

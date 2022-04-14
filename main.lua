@@ -21,6 +21,7 @@ local rootUri = ''
 local message = ''
 local completionCursor = 0
 local lastCompletion = {}
+local splitBP = nil
 
 local json = {}
 
@@ -84,6 +85,7 @@ end
 function init()
 	config.RegisterCommonOption("lsp", "server", "python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,rust=rls,lua=lua-lsp")
 	config.RegisterCommonOption("lsp", "formatOnSave", true)
+	config.RegisterCommonOption("lsp", "autocompleteDetails", false)
 	
 	config.MakeCommand("hover", hoverAction, config.NoComplete)
 	config.MakeCommand("definition", definitionAction, config.NoComplete)
@@ -127,8 +129,16 @@ function onRune(bp, r)
 	if cmd[filetype] == nil then
 		return
 	end
+	if splitBP ~= nil then
+		pcall(function () splitBP:Unsplit(); end)
+		splitBP = nil
+	end
+
 	local send = withSend(filetype)
 	local uri = getUriFromBuf(bp.Buf)
+	if r ~= nil then
+		lastCompletion = {}
+	end
 	-- allow the document contents to be escaped properly for the JSON string
 	local content = util.String(bp.Buf:Bytes()):gsub("\\", "\\\\"):gsub("\n", "\\n"):gsub("\r", "\\r"):gsub('"', '\\"'):gsub("\t", "\\t")
 	-- increase change version
@@ -157,6 +167,13 @@ function onIndent(bp) onRune(bp); end
 function onIndentSelection(bp) onRune(bp); end
 function onPaste(bp) onRune(bp); end
 function onSave(bp) onRune(bp); end
+
+function onEscape(bp) 
+	if splitBP ~= nil then
+		pcall(function () splitBP:Unsplit(); end)
+		splitBP = nil
+	end
+end		
 
 function preInsertNewline(bp)
 	if bp.Buf.Path == "References found" then
@@ -493,18 +510,76 @@ function completionActionResponse(bp, data)
 	end
 	bp.Cursor:SetSelectionEnd(buffer.Loc(start.X + #(entry.textEdit and entry.textEdit.newText or entry.label), start.Y))
 
+	local startLoc = buffer.Loc(0, 0)
+	local endLoc = buffer.Loc(0, 0)	
 	local msg = ''
+	local insertion = ''
 	if entry.detail or entry.documentation then
-		msg = fmt.Sprintf("%s %s", entry.detail or '', entry.documentation or '')
-	else
+		insertion = fmt.Sprintf("%s", entry.detail or entry.documentation or '')
 		for idx, result in ipairs(results) do
-			if idx >= (completionCursor % #results) + 1 then 
-				if msg ~= '' then msg = msg .. '  '; end
-				msg = msg .. result.label
+			if #msg > 0 then
+				msg = msg .. "\n"
 			end
+			local insertion = fmt.Sprintf("%s %s", result.detail or '', result.documentation or '')
+			if idx == (completionCursor % #results) + 1 then
+				local msglines = mysplit(msg, "\n")
+				startLoc = buffer.Loc(0, #msglines)
+				endLoc = buffer.Loc(#insertion - 1, #msglines)
+			end
+			msg = msg .. insertion
+		end
+	else
+		insertion = entry.label
+		for idx, result in ipairs(results) do
+			if #msg > 0 then
+				local msglines = mysplit(msg, "\n")
+				local lastLine = msglines[#msglines]
+				local len = #result.label + 4
+				if #lastLine + len >= bp:GetView().Width then
+					msg = msg .. "\n  "
+				else 
+					msg = msg .. '  '
+				end
+			else
+				msg = "  "
+			end
+			if idx == (completionCursor % #results) + 1 then
+				local msglines = mysplit(msg, "\n")
+				local prefixLen = 0
+				if #msglines > 0 then
+		    		prefixLen = #msglines[#msglines]
+		    	else
+		    		prefixLen = #msg
+		    	end
+				startLoc = buffer.Loc(prefixLen or 0, #msglines - 1)
+				endLoc = buffer.Loc(prefixLen + #result.label, #msglines - 1)
+			end
+			msg = msg .. result.label
 		end
 	end
-	micro.InfoBar():Message(msg)
+	if config.GetGlobalOption("lsp.autocompleteDetails") then
+		if not splitBP then
+			local logBuf = buffer.NewBuffer(msg, "Auto Complete Suggestions")
+			splitBP = bp:HSplitBuf(logBuf)
+			bp:NextSplit()
+		else
+			splitBP:SelectAll()
+			splitBP.Cursor:DeleteSelection()
+			splitBP.Cursor:ResetSelection()
+			splitBP.Buf:insert(buffer.Loc(1, 1), msg)
+		end
+		splitBP.Cursor:ResetSelection()
+		splitBP.Cursor:SetSelectionStart(startLoc)
+		splitBP.Cursor:SetSelectionEnd(endLoc)
+	else
+		if entry.detail or entry.documentation then
+			micro.InfoBar():Message(insertion)
+		else
+			local cleaned = " " .. msg:gsub("%s+", "  ")
+			local replaced, _ = cleaned:gsub(".*%s" .. insertion .. "%s?", " [" .. insertion .. "] ")
+			micro.InfoBar():Message(replaced)
+		end
+	end
 end
 
 function formatAction(bp, callback)

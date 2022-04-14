@@ -138,7 +138,7 @@ function onRune(bp, r)
 		if capabilities[filetype].completionProvider and capabilities[filetype].completionProvider.triggerCharacters and contains(capabilities[filetype].completionProvider.triggerCharacters, r) then
 			completionAction(bp)
 		elseif capabilities[filetype].signatureHelpProvider and capabilities[filetype].signatureHelpProvider.triggerCharacters and contains(capabilities[filetype].signatureHelpProvider.triggerCharacters, r) then
-			definitionAction(bp)
+			hoverAction(bp)
 		end
 	end
 end

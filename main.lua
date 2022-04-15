@@ -404,6 +404,30 @@ function completionAction(bp)
 		completionCursor = completionCursor + 1
 	else
 		completionCursor = 0
+		if bp.Cursor:HasSelection() then
+			-- we have a selection
+			-- assume we want to indent the selection
+			bp:IndentSelection()
+			return
+		end
+		if char == 0 then
+			-- we are at the very first character of a line
+			-- assume we want to indent
+			bp:IndentLine()
+			return
+		end
+		local cur = bp.Buf:GetActiveCursor()
+		cur:SelectLine()
+		local lineContent = util.String(cur:GetSelection())
+		cur:ResetSelection()
+		cur:GotoLoc(buffer.Loc(char, line))
+		local startOfLine = "" .. lineContent:sub(1, char)
+		if startOfLine:match("^%s+$") then
+			-- we are at the beginning of a line
+			-- assume we want to indent the line
+			bp:IndentLine()
+			return
+		end
 	end
 	lastCompletion = {file, line, char}
 	currentAction[filetype] = { method = "textDocument/completion", response = completionActionResponse }
@@ -459,6 +483,9 @@ function completionActionResponse(bp, data)
 					break
 				end
 			end
+			if not found then
+				prefix = lineContent:gsub("\r?\n$", '')
+			end
 		end
 		if prefix ~= "" then
 			results = table.filter(results, function (entry)
@@ -509,7 +536,6 @@ function completionActionResponse(bp, data)
 		bp.Cursor:SetSelectionStart(xy)
 	end
 	bp.Cursor:SetSelectionEnd(buffer.Loc(start.X + #(entry.textEdit and entry.textEdit.newText or entry.label), start.Y))
-
 	local startLoc = buffer.Loc(0, 0)
 	local endLoc = buffer.Loc(0, 0)	
 	local msg = ''

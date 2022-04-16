@@ -257,6 +257,7 @@ function onStdout(filetype)
 			-- react to server-published event
 			local bp = micro.CurPane().Buf
 			bp:ClearMessages("lsp")
+			bp:AddMessage(buffer.NewMessage("lsp", "", buffer.Loc(0, 10000000), buffer.Loc(0, 10000000), buffer.MTInfo))
 			local uri = getUriFromBuf(bp)
 			if data.params.uri == uri then
 				for _, diagnostic in ipairs(data.params.diagnostics) do

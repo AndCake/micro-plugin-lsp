@@ -6,7 +6,7 @@ local shell = import("micro/shell")
 local util = import("micro/util")
 local buffer = import("micro/buffer")
 local fmt = import("fmt")
-local os = import("os")
+local go_os = import("os")
 local path = import("path")
 local filepath = import("path/filepath")
 
@@ -22,6 +22,7 @@ local message = ''
 local completionCursor = 0
 local lastCompletion = {}
 local splitBP = nil
+local tabCount = 0
 
 local json = {}
 
@@ -55,9 +56,9 @@ function mysplit (inputstr, sep)
 end
 
 function startServers()
-	local wd, _ = os.Getwd()
+	local wd, _ = go_os.Getwd()
 	rootUri = fmt.Sprintf("file://%s", wd)
-	local envSettings, _ = os.Getenv("MICRO_LSP")
+	local envSettings, _ = go_os.Getenv("MICRO_LSP")
 	local settings = config.GetGlobalOption("lsp.server")
 	local fallback = "python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,markdown=deno lsp,json=deno lsp,jsonc=deno lsp,rust=rls,lua=lua-lsp"
 	if envSettings ~= nil and #envSettings > 0 then
@@ -77,7 +78,7 @@ function startServers()
 		micro.Log("Starting server", part[1])
 		cmd[part[1]] = shell.JobSpawn(runCmd, args, onStdout(part[1]), onStderr, onExit(part[1]), {})
 		currentAction[part[1]] = { method = "initialize" }
-		send(currentAction[part[1]].method, fmt.Sprintf('{"processId": %.0f, "rootUri": "%s", "workspaceFolders": [{"name": "root", "uri": "%s"}], "initializationOptions": %s, "capabilities": {"textDocument": {"hover": {"contentFormat": ["plaintext", "markdown"]}, "publishDiagnostics": {"relatedInformation": false, "versionSupport": false, "codeDescriptionSupport": true, "dataSupport": true}, "signatureHelp": {"signatureInformation": {"documentationFormat": ["plaintext", "markdown"]}}}}}', os.Getpid(), rootUri, rootUri, initOptions))
+		send(currentAction[part[1]].method, fmt.Sprintf('{"processId": %.0f, "rootUri": "%s", "workspaceFolders": [{"name": "root", "uri": "%s"}], "initializationOptions": %s, "capabilities": {"textDocument": {"hover": {"contentFormat": ["plaintext", "markdown"]}, "publishDiagnostics": {"relatedInformation": false, "versionSupport": false, "codeDescriptionSupport": true, "dataSupport": true}, "signatureHelp": {"signatureInformation": {"documentationFormat": ["plaintext", "markdown"]}}}}}', go_os.Getpid(), rootUri, rootUri, initOptions))
 		send("initialized", "{}", true)
 	end
 end
@@ -189,6 +190,9 @@ function preInsertNewline(bp)
 		micro.CurPane():Center()
 		return false
 	end
+	if splitBP ~= nil then
+		-- teal with accepting current autocompletion selection
+	end
 end
 
 function preSave(bp)
@@ -236,6 +240,24 @@ end
 
 function string.ends(String, End)
 	return string.sub(String, #String - (#End - 1), #String) == End
+end
+
+function string.random(CharSet, Length, prefix)
+
+   local _CharSet = CharSet or '.'
+
+   if _CharSet == '' then
+      return ''
+   else
+      local Result = prefix or ""
+
+      for Loop = 1,Length do
+	      local char = math.random(1, #CharSet)
+         Result = Result .. CharSet:sub(char,char)
+      end
+
+      return Result
+   end
 end
 
 function string.parse(text)
@@ -293,7 +315,7 @@ function onStdout(filetype)
 		elseif currentAction[filetype] and currentAction[filetype].method and currentAction[filetype].response and data.jsonrpc then
 			-- react to custom action event
 			local bp = micro.CurPane()
-			micro.Log(filetype .. " handling ", data)
+			--micro.Log(filetype .. " handling ", data)
 			currentAction[filetype].response(bp, data)
 			currentAction[filetype] = {}
 		elseif data.method == "window/showMessage" or data.method == "window\\/showMessage" then
@@ -395,7 +417,6 @@ end
 
 function completionAction(bp)
 	local filetype = bp.Buf:FileType()
-	if cmd[filetype] == nil then return; end
 	local send = withSend(filetype)
 	local file = bp.Buf.AbsPath
 	local line = bp.Buf:GetActiveCursor().Y
@@ -423,6 +444,7 @@ function completionAction(bp)
 		cur:ResetSelection()
 		cur:GotoLoc(buffer.Loc(char, line))
 		local startOfLine = "" .. lineContent:sub(1, char)
+		micro.Log("START OF LINE", '"'..startOfLine..'"')
 		if startOfLine:match("^%s+$") then
 			-- we are at the beginning of a line
 			-- assume we want to indent the line
@@ -430,6 +452,7 @@ function completionAction(bp)
 			return
 		end
 	end
+	if cmd[filetype] == nil then return; end
 	lastCompletion = {file, line, char}
 	currentAction[filetype] = { method = "textDocument/completion", response = completionActionResponse }
 	send(currentAction[filetype].method, fmt.Sprintf('{"textDocument": {"uri": "file://%s"}, "position": {"line": %.0f, "character": %.0f}}', file, line, char))
@@ -443,6 +466,36 @@ table.filter = function(t, filterIter)
   end
 
   return out
+end
+
+function findCommon(input, list)
+	local commonLen = 0
+	local prefixList = {}
+	local str = input.textEdit and input.textEdit.newText or input.label
+	for i = 1,#str,1 do
+		local prefix = str:sub(1, i)
+		prefixList[prefix] = 0
+		for idx, entry in ipairs(list) do
+			local currentEntry = entry.textEdit and entry.textEdit.newText or entry.label
+			if currentEntry:starts(prefix) then
+				prefixList[prefix] = prefixList[prefix] + 1
+			end
+		end
+	end
+	micro.Log("FINDCOMMON", prefixList)
+	local longest = ""
+	for idx, entry in pairs(prefixList) do
+		if entry >= #list then
+			if #longest < #idx then
+				longest = idx
+			end
+		end
+	end
+	micro.Log("LONGEST", longest, mostFrequent)
+	if #list == 1 then
+		return list[1].textEdit and list[1].textEdit.newText or list[1].label
+	end
+	return longest
 end
 
 function completionActionResponse(bp, data)
@@ -463,6 +516,8 @@ function completionActionResponse(bp, data)
 	local found = false
 	local prefix = ""
 	local reversed = ""
+	-- if we have no defined ranges in the result
+	-- try to find out what our prefix is we want to filter against
 	if not results[1] or not results[1].textEdit then
 		if capabilities[bp.Buf:FileType()] and capabilities[bp.Buf:FileType()].completionProvider and capabilities[bp.Buf:FileType()].completionProvider.triggerCharacters then
 			local cur = bp.Buf:GetActiveCursor()
@@ -488,7 +543,9 @@ function completionActionResponse(bp, data)
 				prefix = lineContent:gsub("\r?\n$", '')
 			end
 		end
+		-- if we have found a prefix
 		if prefix ~= "" then
+		    -- filter it down to what is suggested by the prefix
 			results = table.filter(results, function (entry)
 				return entry.label:starts(prefix)
 			end)
@@ -500,10 +557,16 @@ function completionActionResponse(bp, data)
 	end)
 	
 	entry = results[(completionCursor % #results) + 1]
+	-- if no matching results are found
 	if entry == nil then 
+	    -- reposition cursor and stop
 		bp.Cursor:GotoLoc(xy)
 		return
 	end
+	local commonStart = findCommon(entry, results)
+	local toInsert = entry.textEdit and entry.textEdit.newText or entry.label
+	prefix = commonStart
+	micro.Log("COMMONSTART", prefix, toInsert, start, xy)
 
 	if entry.textEdit then
 		start = buffer.Loc(entry.textEdit.range.start.character, entry.textEdit.range.start.line)
@@ -526,17 +589,25 @@ function completionActionResponse(bp, data)
 			bp.Cursor:ResetSelection()
 		end
 	end
-	bp.Buf:insert(start, entry.textEdit and entry.textEdit.newText or entry.label)
-	if entry.textEdit then
-		bp.Cursor:GotoLoc(start)
-		bp.Cursor:SetSelectionStart(start)
+	bp.Buf:Insert(start, toInsert)
+	start = buffer.Loc(start.X + #prefix, start.Y)
+	xy = buffer.Loc(xy.X + #prefix, xy.Y)
+	
+	if #results > 1 then
+		if entry.textEdit then
+			bp.Cursor:GotoLoc(start)
+			bp.Cursor:SetSelectionStart(start)
+		else
+			-- if we had to calculate everything outselves
+			-- go back to the original location
+			bp.Cursor:GotoLoc(xy)
+			bp.Cursor:SetSelectionStart(xy)
+		end
+		bp.Cursor:SetSelectionEnd(buffer.Loc(start.X + #toInsert, start.Y))
 	else
-		-- if we had to calculate everything outselves
-		-- go back to the original location
-		bp.Cursor:GotoLoc(xy)
-		bp.Cursor:SetSelectionStart(xy)
+		bp.Cursor:GotoLoc(buffer.Loc(start.X + #commonStart, start.Y))
 	end
-	bp.Cursor:SetSelectionEnd(buffer.Loc(start.X + #(entry.textEdit and entry.textEdit.newText or entry.label), start.Y))
+	
 	local startLoc = buffer.Loc(0, 0)
 	local endLoc = buffer.Loc(0, 0)	
 	local msg = ''
@@ -586,7 +657,8 @@ function completionActionResponse(bp, data)
 	end
 	if config.GetGlobalOption("lsp.autocompleteDetails") then
 		if not splitBP then
-			local logBuf = buffer.NewBuffer(msg, "Auto Complete Suggestions")
+			local tmpName = ("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"):random(32)
+			local logBuf = buffer.NewBuffer(msg, tmpName)
 			splitBP = bp:HSplitBuf(logBuf)
 			bp:NextSplit()
 		else

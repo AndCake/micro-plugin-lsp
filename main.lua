@@ -84,6 +84,10 @@ end
 function init()
 	config.RegisterCommonOption("lsp", "server", "python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,rust=rls,lua=lua-lsp")
 	config.RegisterCommonOption("lsp", "formatOnSave", true)
+
+	config.RegisterCommonOption("lsp", "ignoreMessages", "")
+	-- example to ignore all LSP server message starting with these strings:
+	-- "lsp.ignoreMessages": "Skipping analyzing |See https://"
 	
 	config.MakeCommand("hover", hoverAction, config.NoComplete)
 	config.MakeCommand("definition", definitionAction, config.NoComplete)
@@ -235,6 +239,19 @@ function string.parse(text)
 	return false
 end
 
+function isIgnoredMessage(msg)
+	-- Return true if msg matches one of the ignored starts of messages
+	-- Useful for linters that show spurious, hard to disable warnings
+	local ignoreList = mysplit(config.GetGlobalOption("lsp.ignoreMessages"), "|")
+	for i, ignore in pairs(ignoreList) do
+		if string.match(msg, ignore) then -- match from start of string
+			micro.Log("Ignore message: '", msg, "', because it matched: '", ignore, "'.")
+			return true -- ignore this message, dont show to user
+		end
+	end
+	return false -- show this message to user
+end
+
 function onStdout(filetype)
 	return function (text)
 		if text:starts("Content-Length:") then
@@ -269,8 +286,11 @@ function onStdout(filetype)
 					end
 					local mstart = buffer.Loc(diagnostic.range.start.character, diagnostic.range.start.line)
 		            local mend = buffer.Loc(diagnostic.range["end"].character, diagnostic.range["end"].line)
-					msg = buffer.NewMessage("lsp", diagnostic.message, mstart, mend, type)
-					bp:AddMessage(msg)
+	
+					if not isIgnoredMessage(diagnostic.message) then
+						msg = buffer.NewMessage("lsp", diagnostic.message, mstart, mend, type)
+						bp:AddMessage(msg)
+		            end
 				end
 			end
 		elseif currentAction[filetype] and currentAction[filetype].method and currentAction[filetype].response and data.jsonrpc then

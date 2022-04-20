@@ -52,7 +52,7 @@ function mysplit (inputstr, sep)
         return t
 end
 
-function startServer(filetype, callback, buf)
+function startServer(filetype, callback)
 	local wd, _ = os.Getwd()
 	rootUri = fmt.Sprintf("file://%s", wd)
 	local envSettings, _ = os.Getenv("MICRO_LSP")
@@ -74,9 +74,10 @@ function startServer(filetype, callback, buf)
 		id[part[1]] = 0
 		micro.Log("Starting server", part[1])
 		cmd[part[1]] = shell.JobSpawn(runCmd, args, onStdout(part[1]), onStderr, onExit(part[1]), {})
-		currentAction[part[1]] = { method = "initialize", response = function ()
+		currentAction[part[1]] = { method = "initialize", response = function (bp, data)
 		    send("initialized", "{}", true)
-		    callback(buf, filetype)
+			capabilities[filetype] = data.result and data.result.capabilities or {}
+		    callback(bp.Buf, filetype)
 		end }
 		send(currentAction[part[1]].method, fmt.Sprintf('{"processId": %.0f, "rootUri": "%s", "workspaceFolders": [{"name": "root", "uri": "%s"}], "initializationOptions": %s, "capabilities": {"textDocument": {"hover": {"contentFormat": ["plaintext", "markdown"]}, "publishDiagnostics": {"relatedInformation": false, "versionSupport": false, "codeDescriptionSupport": true, "dataSupport": true}, "signatureHelp": {"signatureInformation": {"documentationFormat": ["plaintext", "markdown"]}}}}}', os.Getpid(), rootUri, rootUri, initOptions))
 		return
@@ -194,7 +195,7 @@ end
 function onBufferOpen(buf)
 	local filetype = buf:FileType()
 	micro.Log("ONBUFFEROPEN", filetype)
-	if filetype ~= "unknown" and rootUri == "" and not cmd[filetype] then return startServer(filetype, handleInitialized, buf); end
+	if filetype ~= "unknown" and rootUri == "" and not cmd[filetype] then return startServer(filetype, handleInitialized); end
 	if cmd[filetype] then
 	    handleInitialized(buf, filetype)
 	end
@@ -281,9 +282,6 @@ function onStdout(filetype)
 			end
 		elseif data.method == "window/logMessage" or data.method == "window\\/logMessage" then
 			micro.Log(data.params.message)
-		elseif currentAction[filetype] and currentAction[filetype].method == "initialize" then
-			currentAction[filetype] = {}
-			capabilities[filetype] = data.result.capabilities or {}
 		elseif message:starts("Content-Length:") then
 			if message:find('"') and not message:find('"result":null') then
 				micro.Log("Unhandled message 1", filetype, message)

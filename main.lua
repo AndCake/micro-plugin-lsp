@@ -12,7 +12,6 @@ local filepath = import("path/filepath")
 
 local cmd = {}
 local id = {}
-local queue = {}
 local version = {}
 local currentAction = {}
 local capabilities = {}
@@ -53,7 +52,7 @@ function mysplit (inputstr, sep)
         return t
 end
 
-function startServers()
+function startServer(filetype, callback, buf)
 	local wd, _ = os.Getwd()
 	rootUri = fmt.Sprintf("file://%s", wd)
 	local envSettings, _ = os.Getenv("MICRO_LSP")
@@ -69,15 +68,19 @@ function startServers()
 		local initOptions = part[3] or '{}'
 		local runCmd = table.remove(run, 1)
 		local args = run
+		if filetype == part[1] then
 		local send = withSend(part[1])
 		if cmd[part[1]] ~= nil then return; end
 		id[part[1]] = 0
-		queue[part[1]] = {}
 		micro.Log("Starting server", part[1])
 		cmd[part[1]] = shell.JobSpawn(runCmd, args, onStdout(part[1]), onStderr, onExit(part[1]), {})
-		currentAction[part[1]] = { method = "initialize" }
+		currentAction[part[1]] = { method = "initialize", response = function ()
+		    send("initialized", "{}", true)
+		    callback(buf, filetype)
+		end }
 		send(currentAction[part[1]].method, fmt.Sprintf('{"processId": %.0f, "rootUri": "%s", "workspaceFolders": [{"name": "root", "uri": "%s"}], "initializationOptions": %s, "capabilities": {"textDocument": {"hover": {"contentFormat": ["plaintext", "markdown"]}, "publishDiagnostics": {"relatedInformation": false, "versionSupport": false, "codeDescriptionSupport": true, "dataSupport": true}, "signatureHelp": {"signatureInformation": {"documentationFormat": ["plaintext", "markdown"]}}}}}', os.Getpid(), rootUri, rootUri, initOptions))
-		send("initialized", "{}", true)
+		return
+		end
 	end
 end
 
@@ -111,13 +114,8 @@ function withSend(filetype)
 		local msg = fmt.Sprintf('{"jsonrpc": "2.0", %s"method": "%s", "params": %s}', not isNotification and fmt.Sprintf('"id": %.0f, ', id[filetype]) or "", method, params)
 		id[filetype] = id[filetype] + 1
 		msg = fmt.Sprintf("Content-Length: %.0f\r\n\r\n%s", #msg, msg)
-		if id[filetype] ~= 1 and id[filetype] <= 3 then
-			micro.Log("send", filetype, "queueing", method)
-			table.insert(queue[filetype], msg)
-		else
-			micro.Log("send", filetype, "sending", method or msg, msg)
-			shell.JobSend(cmd[filetype], msg)
-		end
+		micro.Log("send", filetype, "sending", method or msg, msg)
+		shell.JobSend(cmd[filetype], msg)
 	end
 end
 
@@ -183,10 +181,8 @@ function preSave(bp)
 	end
 end
 
-function onBufferOpen(buf)
-	local filetype = buf:FileType()
-	if filetype ~= "unknown" and rootUri == "" then startServers(); end
-	micro.Log("ONBUFFEROPEN", filetype)
+function handleInitialized(buf, filetype)
+    micro.Log("HANDLE INITIALIZED", filetype, cmd)
 	if cmd[filetype] == nil then return; end
 	micro.Log("Found running lsp server for ", filetype, "firing textDocument/didOpen...")
 	local send = withSend(filetype)
@@ -195,14 +191,12 @@ function onBufferOpen(buf)
 	send("textDocument/didOpen", fmt.Sprintf('{"textDocument": {"uri": "%s", "languageId": "%s", "version": 1, "text": "%s"}}', uri, filetype, content), true)
 end
 
-function sendNext(filetype)
-	if #queue[filetype] > 0 then
-		local msg = table.remove(queue[filetype], 1)
-		micro.Log("send", filetype, "sending", msg)
-		shell.JobSend(cmd[filetype], msg)
-		if msg:find('"method": "initialized"') then
-			sendNext(filetype)
-		end
+function onBufferOpen(buf)
+	local filetype = buf:FileType()
+	micro.Log("ONBUFFEROPEN", filetype)
+	if filetype ~= "unknown" and rootUri == "" and not cmd[filetype] then return startServer(filetype, handleInitialized, buf); end
+	if cmd[filetype] then
+	    handleInitialized(buf, filetype)
 	end
 end
 
@@ -298,7 +292,6 @@ function onStdout(filetype)
 			-- enable for debugging purposes
 			micro.Log("Unhandled message 2", filetype, message)
 		end
-		sendNext(filetype)
 	end
 end
 
@@ -311,7 +304,6 @@ function onExit(filetype)
 	return function (str)
 		currentAction[filetype] = nil
 		cmd[filetype] = nil
-		queue[filetype] = nil
 		micro.Log("ONEXIT", filetype, str)
 	end
 end

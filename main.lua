@@ -53,6 +53,19 @@ function mysplit (inputstr, sep)
         return t
 end
 
+function parseOptions(inputstr)
+	local t = {}
+	inputstr = inputstr:gsub("%w+=[^=,]+={.-}", function (str)
+		table.insert(t, str)
+		return '';
+	end)
+	inputstr = inputstr:gsub("%w+=[^=,]+", function (str)
+		table.insert(t, str)
+		return '';
+	end)
+	return t
+end
+
 function startServers()
 	local wd, _ = os.Getwd()
 	rootUri = fmt.Sprintf("file://%s", wd)
@@ -62,7 +75,7 @@ function startServers()
 	if envSettings ~= nil and #envSettings > 0 then
 		settings = envSettings
 	end
-	local server = mysplit(settings or fallback, ",")
+	local server = parseOptions(settings or fallback)
 	for i in pairs(server) do
 		local part = mysplit(server[i], "=")
 		local run = mysplit(part[2], "%s")

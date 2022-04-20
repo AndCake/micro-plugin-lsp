@@ -206,6 +206,35 @@ def square(x: int) -> int:
 	return x*x
 ```
 
+### lua-lsp, Lua language server
+
+These are the initial installation instructions. This installation will support linter messages in the gutter (on the left of editing area) and jump to definition inside the same file (alt-D). All LSP features are not yet supported with Lua. 
+
+Install 'luarocks' command using your package manager. For example, on Debian 
+
+	$ sudo apt-get update
+	$ sudo apt-get -y install luarocks
+
+Use luarocks to install helper packages used by lua-lsp
+
+	$ sudo luarocks install luacheck
+	$ sudo luarocks install Formatter
+	$ sudo luarocks install lcf
+
+Install lua-lsp, the Lua language server
+
+	$ sudo luarocks install --server=ssh://luarocks.org/dev lua-lsp
+
+This command uses different URL from official lua-lsp instructions due to [a change in how packages are downloaded](https://github.com/Alloyed/lua-lsp/issues/45). This command uses ssh instead of http. 
+
+To test it, open a Lua file
+
+	$ micro $HOME/.config/micro/plug/lsp/main.lua
+
+Can you see some linter warnings ">>" in the gutter? Can you jump to functions inside the same file with Alt-D? Well done, you've installed Lua LSP support for micro. 
+
+All features don't work yet with Lua LSP. 
+
 ## See also
 
 [Official repostory](https://github.com/AndCake/micro-plugin-lsp)

@@ -1,4 +1,4 @@
-VERSION = "0.5.1"
+VERSION = "0.5.3"
 
 local micro = import("micro")
 local config = import("micro/config")
@@ -138,7 +138,7 @@ function onRune(bp, r)
 		if capabilities[filetype].completionProvider and capabilities[filetype].completionProvider.triggerCharacters and contains(capabilities[filetype].completionProvider.triggerCharacters, r) then
 			completionAction(bp)
 		elseif capabilities[filetype].signatureHelpProvider and capabilities[filetype].signatureHelpProvider.triggerCharacters and contains(capabilities[filetype].signatureHelpProvider.triggerCharacters, r) then
-			definitionAction(bp)
+			hoverAction(bp)
 		end
 	end
 end
@@ -228,8 +228,11 @@ function string.parse(text)
 	if fin ~= nil then
 		cleanedText = text:sub(fin)
 	end
-	data = json.parse(cleanedText)
-	return data
+	local status, res = pcall(json.parse, cleanedText)
+	if status then
+		return res
+	end
+	return false
 end
 
 function onStdout(filetype)
@@ -243,6 +246,9 @@ function onStdout(filetype)
 			return
 		end	
 		local data = message:parse()
+		if data == false then
+			return
+		end
 		if data.method == "workspace/configuration" then
 		    -- actually needs to respond with the same ID as the received JSON
 			local message = fmt.Sprintf('{"jsonrpc": "2.0", "id": %.0f, "result": [{"enable": true}]}', data.id)
@@ -251,6 +257,7 @@ function onStdout(filetype)
 			-- react to server-published event
 			local bp = micro.CurPane().Buf
 			bp:ClearMessages("lsp")
+			bp:AddMessage(buffer.NewMessage("lsp", "", buffer.Loc(0, 10000000), buffer.Loc(0, 10000000), buffer.MTInfo))
 			local uri = getUriFromBuf(bp)
 			if data.params.uri == uri then
 				for _, diagnostic in ipairs(data.params.diagnostics) do
@@ -269,6 +276,7 @@ function onStdout(filetype)
 		elseif currentAction[filetype] and currentAction[filetype].method and currentAction[filetype].response and data.jsonrpc then
 			-- react to custom action event
 			local bp = micro.CurPane()
+			micro.Log(filetype .. " handling ", data)
 			currentAction[filetype].response(bp, data)
 			currentAction[filetype] = {}
 		elseif data.method == "window/showMessage" or data.method == "window\\/showMessage" then
@@ -386,23 +394,73 @@ function completionAction(bp)
 	send(currentAction[filetype].method, fmt.Sprintf('{"textDocument": {"uri": "file://%s"}, "position": {"line": %.0f, "character": %.0f}}', file, line, char))
 end
 
+table.filter = function(t, filterIter)
+  local out = {}
+
+  for k, v in pairs(t) do
+    if filterIter(v, k, t) then table.insert(out, v) end
+  end
+
+  return out
+end
+
 function completionActionResponse(bp, data)
 	local results = data.result
-	if results == nil then return; end
+	if results == nil then 
+		return
+	end
 	if results.items then
 		results = results.items
 	end
-	table.sort(results, function (left, right)
-		return (left.sortText or left.label) < (right.sortText or right.label)
-	end)
-	entry = results[(completionCursor % #results) + 1]
-	if entry == nil then return; end
-
+	
 	local xy = buffer.Loc(bp.Cursor.X, bp.Cursor.Y)
 	local start = xy
 	if bp.Cursor:HasSelection() then
 		bp.Cursor:DeleteSelection()
 	end
+
+	local found = false
+	local prefix = ""
+	local reversed = ""
+	if not results[1] or not results[1].textEdit then
+		if capabilities[bp.Buf:FileType()] and capabilities[bp.Buf:FileType()].completionProvider and capabilities[bp.Buf:FileType()].completionProvider.triggerCharacters then
+			local cur = bp.Buf:GetActiveCursor()
+			cur:SelectLine()
+			local lineContent = util.String(cur:GetSelection())
+			reversed = string.reverse(lineContent:gsub("\r?\n$", ""):sub(1, xy.X))
+			local triggerChars = capabilities[bp.Buf:FileType()].completionProvider.triggerCharacters
+			for i = 1,#reversed,1 do
+				local char = reversed:sub(i,i)
+				-- try to find a trigger character or any other non-word character
+				if contains(triggerChars, char) or contains({" ", ":", "/", "-", "\t", ";"}, char) then
+					found = true
+					start = buffer.Loc(#reversed - (i - 1), bp.Cursor.Y)
+					bp.Cursor:SetSelectionStart(start)
+					bp.Cursor:SetSelectionEnd(xy)
+					prefix = util.String(cur:GetSelection())
+					bp.Cursor:DeleteSelection()
+					bp.Cursor:ResetSelection()
+					break
+				end
+			end
+		end
+		if prefix ~= "" then
+			results = table.filter(results, function (entry)
+				return entry.label:starts(prefix)
+			end)
+		end
+	end
+
+	table.sort(results, function (left, right)
+		return (left.sortText or left.label) < (right.sortText or right.label)
+	end)
+	
+	entry = results[(completionCursor % #results) + 1]
+	if entry == nil then 
+		bp.Cursor:GotoLoc(xy)
+		return
+	end
+
 	if entry.textEdit then
 		start = buffer.Loc(entry.textEdit.range.start.character, entry.textEdit.range.start.line)
 		bp.Cursor:SetSelectionStart(start)
@@ -410,30 +468,11 @@ function completionActionResponse(bp, data)
 		bp.Cursor:DeleteSelection()
 		bp.Cursor:ResetSelection()
 	elseif capabilities[bp.Buf:FileType()] and capabilities[bp.Buf:FileType()].completionProvider and capabilities[bp.Buf:FileType()].completionProvider.triggerCharacters then
-		local cur = bp.Buf:GetActiveCursor()
-		cur:SelectLine()
-		local lineContent = util.String(cur:GetSelection())
-		local reversed = string.reverse(lineContent:gsub("\r?\n$", ""))
-		local triggerChars = capabilities[bp.Buf:FileType()].completionProvider.triggerCharacters
-		local found = false
-		for i = 1,#reversed,1 do
-			local char = reversed:sub(i,i)
-			-- try to find a trigger character or any other non-word character
-			if contains(triggerChars, char) or contains({" ", ":", "/", "-", "\t", ";"}, char) then
-				found = true
-				start = buffer.Loc(#reversed - (i - 1), bp.Cursor.Y)
-				bp.Cursor:SetSelectionStart(start)
-				bp.Cursor:SetSelectionEnd(xy)
-				bp.Cursor:DeleteSelection()
-				bp.Cursor:ResetSelection()
-				break
-			end
-		end
 		if not found then
 			-- we found nothing - so assume we need the beginning of the line
 			if reversed:starts(" ") or reversed:starts("\t") then
 				-- if we end with some indentation, keep it
-				start = buffer.Loc(#lineContent, bp.Cursor.Y)
+				start = buffer.Loc(#reversed, bp.Cursor.Y)
 			else
 				start = buffer.Loc(0, bp.Cursor.Y)
 			end
@@ -627,7 +666,7 @@ json.null = {}  -- This is a one-off table to represent the null value.
 
 function json.parse(str, pos, end_delim)
   pos = pos or 1
-  if pos > #str then error('Reached unexpected end of input.') end
+  if pos > #str then error('Reached unexpected end of input.' .. str) end
   local pos = pos + #str:match('^%s*', pos)  -- Skip whitespace.
   local first = str:sub(pos, pos)
   if first == '{' then  -- Parse an object.

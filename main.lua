@@ -12,7 +12,6 @@ local filepath = import("path/filepath")
 
 local cmd = {}
 local id = {}
-local queue = {}
 local version = {}
 local currentAction = {}
 local capabilities = {}
@@ -55,7 +54,7 @@ function mysplit (inputstr, sep)
         return t
 end
 
-function startServers()
+function startServer(filetype, callback)
 	local wd, _ = go_os.Getwd()
 	rootUri = fmt.Sprintf("file://%s", wd)
 	local envSettings, _ = go_os.Getenv("MICRO_LSP")
@@ -71,15 +70,20 @@ function startServers()
 		local initOptions = part[3] or '{}'
 		local runCmd = table.remove(run, 1)
 		local args = run
+		if filetype == part[1] then
 		local send = withSend(part[1])
 		if cmd[part[1]] ~= nil then return; end
-		id[part[1]] = 0
-		queue[part[1]] = {}
-		micro.Log("Starting server", part[1])
-		cmd[part[1]] = shell.JobSpawn(runCmd, args, onStdout(part[1]), onStderr, onExit(part[1]), {})
-		currentAction[part[1]] = { method = "initialize" }
-		send(currentAction[part[1]].method, fmt.Sprintf('{"processId": %.0f, "rootUri": "%s", "workspaceFolders": [{"name": "root", "uri": "%s"}], "initializationOptions": %s, "capabilities": {"textDocument": {"hover": {"contentFormat": ["plaintext", "markdown"]}, "publishDiagnostics": {"relatedInformation": false, "versionSupport": false, "codeDescriptionSupport": true, "dataSupport": true}, "signatureHelp": {"signatureInformation": {"documentationFormat": ["plaintext", "markdown"]}}}}}', go_os.Getpid(), rootUri, rootUri, initOptions))
-		send("initialized", "{}", true)
+			id[part[1]] = 0
+			micro.Log("Starting server", part[1])
+			cmd[part[1]] = shell.JobSpawn(runCmd, args, onStdout(part[1]), onStderr, onExit(part[1]), {})
+			currentAction[part[1]] = { method = "initialize", response = function (bp, data)
+			    send("initialized", "{}", true)
+				capabilities[filetype] = data.result and data.result.capabilities or {}
+			    callback(bp.Buf, filetype)
+			end }
+			send(currentAction[part[1]].method, fmt.Sprintf('{"processId": %.0f, "rootUri": "%s", "workspaceFolders": [{"name": "root", "uri": "%s"}], "initializationOptions": %s, "capabilities": {"textDocument": {"hover": {"contentFormat": ["plaintext", "markdown"]}, "publishDiagnostics": {"relatedInformation": false, "versionSupport": false, "codeDescriptionSupport": true, "dataSupport": true}, "signatureHelp": {"signatureInformation": {"documentationFormat": ["plaintext", "markdown"]}}}}}', go_os.Getpid(), rootUri, rootUri, initOptions))
+			return
+		end
 	end
 end
 
@@ -87,6 +91,9 @@ function init()
 	config.RegisterCommonOption("lsp", "server", "python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,rust=rls,lua=lua-lsp")
 	config.RegisterCommonOption("lsp", "formatOnSave", true)
 	config.RegisterCommonOption("lsp", "autocompleteDetails", false)
+	config.RegisterCommonOption("lsp", "ignoreMessages", "")
+	-- example to ignore all LSP server message starting with these strings:
+	-- "lsp.ignoreMessages": "Skipping analyzing |See https://"
 	
 	config.MakeCommand("hover", hoverAction, config.NoComplete)
 	config.MakeCommand("definition", definitionAction, config.NoComplete)
@@ -114,13 +121,8 @@ function withSend(filetype)
 		local msg = fmt.Sprintf('{"jsonrpc": "2.0", %s"method": "%s", "params": %s}', not isNotification and fmt.Sprintf('"id": %.0f, ', id[filetype]) or "", method, params)
 		id[filetype] = id[filetype] + 1
 		msg = fmt.Sprintf("Content-Length: %.0f\r\n\r\n%s", #msg, msg)
-		if id[filetype] ~= 1 and id[filetype] <= 3 then
-			micro.Log("send", filetype, "queueing", method)
-			table.insert(queue[filetype], msg)
-		else
-			micro.Log("send", filetype, "sending", method or msg, msg)
-			shell.JobSend(cmd[filetype], msg)
-		end
+		micro.Log("send", filetype, "sending", method or msg, msg)
+		shell.JobSend(cmd[filetype], msg)
 	end
 end
 
@@ -190,9 +192,6 @@ function preInsertNewline(bp)
 		micro.CurPane():Center()
 		return false
 	end
-	if splitBP ~= nil then
-		-- teal with accepting current autocompletion selection
-	end
 end
 
 function preSave(bp)
@@ -204,10 +203,7 @@ function preSave(bp)
 	end
 end
 
-function onBufferOpen(buf)
-	local filetype = buf:FileType()
-	if filetype ~= "unknown" and rootUri == "" then startServers(); end
-	micro.Log("ONBUFFEROPEN", filetype)
+function handleInitialized(buf, filetype)
 	if cmd[filetype] == nil then return; end
 	micro.Log("Found running lsp server for ", filetype, "firing textDocument/didOpen...")
 	local send = withSend(filetype)
@@ -216,14 +212,12 @@ function onBufferOpen(buf)
 	send("textDocument/didOpen", fmt.Sprintf('{"textDocument": {"uri": "%s", "languageId": "%s", "version": 1, "text": "%s"}}', uri, filetype, content), true)
 end
 
-function sendNext(filetype)
-	if #queue[filetype] > 0 then
-		local msg = table.remove(queue[filetype], 1)
-		micro.Log("send", filetype, "sending", msg)
-		shell.JobSend(cmd[filetype], msg)
-		if msg:find('"method": "initialized"') then
-			sendNext(filetype)
-		end
+function onBufferOpen(buf)
+	local filetype = buf:FileType()
+	micro.Log("ONBUFFEROPEN", filetype)
+	if filetype ~= "unknown" and rootUri == "" and not cmd[filetype] then return startServer(filetype, handleInitialized); end
+	if cmd[filetype] then
+	    handleInitialized(buf, filetype)
 	end
 end
 
@@ -274,6 +268,19 @@ function string.parse(text)
 	return false
 end
 
+function isIgnoredMessage(msg)
+	-- Return true if msg matches one of the ignored starts of messages
+	-- Useful for linters that show spurious, hard to disable warnings
+	local ignoreList = mysplit(config.GetGlobalOption("lsp.ignoreMessages"), "|")
+	for i, ignore in pairs(ignoreList) do
+		if string.match(msg, ignore) then -- match from start of string
+			micro.Log("Ignore message: '", msg, "', because it matched: '", ignore, "'.")
+			return true -- ignore this message, dont show to user
+		end
+	end
+	return false -- show this message to user
+end
+
 function onStdout(filetype)
 	return function (text)
 		if text:starts("Content-Length:") then
@@ -308,8 +315,11 @@ function onStdout(filetype)
 					end
 					local mstart = buffer.Loc(diagnostic.range.start.character, diagnostic.range.start.line)
 		            local mend = buffer.Loc(diagnostic.range["end"].character, diagnostic.range["end"].line)
-					msg = buffer.NewMessage("lsp", diagnostic.message, mstart, mend, type)
-					bp:AddMessage(msg)
+	
+					if not isIgnoredMessage(diagnostic.message) then
+						msg = buffer.NewMessage("lsp", diagnostic.message, mstart, mend, type)
+						bp:AddMessage(msg)
+		            end
 				end
 			end
 		elseif currentAction[filetype] and currentAction[filetype].method and currentAction[filetype].response and data.jsonrpc then
@@ -326,9 +336,6 @@ function onStdout(filetype)
 			end
 		elseif data.method == "window/logMessage" or data.method == "window\\/logMessage" then
 			micro.Log(data.params.message)
-		elseif currentAction[filetype] and currentAction[filetype].method == "initialize" then
-			currentAction[filetype] = {}
-			capabilities[filetype] = data.result.capabilities or {}
 		elseif message:starts("Content-Length:") then
 			if message:find('"') and not message:find('"result":null') then
 				micro.Log("Unhandled message 1", filetype, message)
@@ -337,7 +344,6 @@ function onStdout(filetype)
 			-- enable for debugging purposes
 			micro.Log("Unhandled message 2", filetype, message)
 		end
-		sendNext(filetype)
 	end
 end
 
@@ -350,7 +356,6 @@ function onExit(filetype)
 	return function (str)
 		currentAction[filetype] = nil
 		cmd[filetype] = nil
-		queue[filetype] = nil
 		micro.Log("ONEXIT", filetype, str)
 	end
 end

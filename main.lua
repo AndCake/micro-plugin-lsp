@@ -92,6 +92,7 @@ function init()
 	config.RegisterCommonOption("lsp", "formatOnSave", true)
 	config.RegisterCommonOption("lsp", "autocompleteDetails", false)
 	config.RegisterCommonOption("lsp", "ignoreMessages", "")
+	config.RegisterCommonOption("lsp", "ignoreTriggerCharacters", "completion")
 	-- example to ignore all LSP server message starting with these strings:
 	-- "lsp.ignoreMessages": "Skipping analyzing |See https://"
 	
@@ -126,6 +127,14 @@ function withSend(filetype)
 	end
 end
 
+function preRune(bp, r)
+	if splitBP ~= nil then
+		pcall(function () splitBP:Unsplit(); end)
+		splitBP = nil
+		bp.Buf:GetActiveCursor():Deselect(false);
+	end
+end
+
 -- when a new character is types, the document changes
 function onRune(bp, r)
 	local filetype = bp.Buf:FileType()
@@ -147,10 +156,11 @@ function onRune(bp, r)
 	-- increase change version
 	version[uri] = (version[uri] or 0) + 1
 	send("textDocument/didChange", fmt.Sprintf('{"textDocument": {"version": %.0f, "uri": "%s"}, "contentChanges": [{"text": "%s"}]}', version[uri], uri, content), true)
+	local ignored = mysplit(config.GetGlobalOption("lsp.ignoreTriggerCharacters") or '', ",")
 	if r and capabilities[filetype] then
-		if capabilities[filetype].completionProvider and capabilities[filetype].completionProvider.triggerCharacters and contains(capabilities[filetype].completionProvider.triggerCharacters, r) then
+		if not contains(ignored, "completion") and capabilities[filetype].completionProvider and capabilities[filetype].completionProvider.triggerCharacters and contains(capabilities[filetype].completionProvider.triggerCharacters, r) then
 			completionAction(bp)
-		elseif capabilities[filetype].signatureHelpProvider and capabilities[filetype].signatureHelpProvider.triggerCharacters and contains(capabilities[filetype].signatureHelpProvider.triggerCharacters, r) then
+		elseif not contains(ignored, "signature") and capabilities[filetype].signatureHelpProvider and capabilities[filetype].signatureHelpProvider.triggerCharacters and contains(capabilities[filetype].signatureHelpProvider.triggerCharacters, r) then
 			hoverAction(bp)
 		end
 	end
@@ -176,7 +186,7 @@ function onEscape(bp)
 		pcall(function () splitBP:Unsplit(); end)
 		splitBP = nil
 	end
-end		
+end
 
 function preInsertNewline(bp)
 	if bp.Buf.Path == "References found" then
@@ -244,7 +254,7 @@ function string.random(CharSet, Length, prefix)
       return ''
    else
       local Result = prefix or ""
-
+      math.randomseed(os.time())
       for Loop = 1,Length do
 	      local char = math.random(1, #CharSet)
          Result = Result .. CharSet:sub(char,char)
@@ -570,8 +580,12 @@ function completionActionResponse(bp, data)
 	end
 	local commonStart = findCommon(entry, results)
 	local toInsert = entry.textEdit and entry.textEdit.newText or entry.label
-	prefix = commonStart
+	bp.Buf:Insert(start, commonStart)
+	if prefix ~= commonStart then
+		return
+	end
 	micro.Log("COMMONSTART", prefix, toInsert, start, xy)
+	start = buffer.Loc(start.X + #prefix, start.Y)
 
 	if entry.textEdit then
 		start = buffer.Loc(entry.textEdit.range.start.character, entry.textEdit.range.start.line)
@@ -594,9 +608,8 @@ function completionActionResponse(bp, data)
 			bp.Cursor:ResetSelection()
 		end
 	end
-	bp.Buf:Insert(start, toInsert)
-	start = buffer.Loc(start.X + #prefix, start.Y)
-	xy = buffer.Loc(xy.X + #prefix, xy.Y)
+	local inserting = "" .. toInsert:gsub(prefix, "")
+	bp.Buf:Insert(start, inserting)
 	
 	if #results > 1 then
 		if entry.textEdit then
@@ -610,7 +623,7 @@ function completionActionResponse(bp, data)
 		end
 		bp.Cursor:SetSelectionEnd(buffer.Loc(start.X + #toInsert, start.Y))
 	else
-		bp.Cursor:GotoLoc(buffer.Loc(start.X + #commonStart, start.Y))
+		bp.Cursor:GotoLoc(buffer.Loc(start.X + #inserting, start.Y))
 	end
 	
 	local startLoc = buffer.Loc(0, 0)

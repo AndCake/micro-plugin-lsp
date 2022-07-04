@@ -6,7 +6,7 @@ local shell = import("micro/shell")
 local util = import("micro/util")
 local buffer = import("micro/buffer")
 local fmt = import("fmt")
-local os = import("os")
+local go_os = import("os")
 local path = import("path")
 local filepath = import("path/filepath")
 
@@ -20,6 +20,8 @@ local rootUri = ''
 local message = ''
 local completionCursor = 0
 local lastCompletion = {}
+local splitBP = nil
+local tabCount = 0
 
 local json = {}
 
@@ -66,9 +68,9 @@ function parseOptions(inputstr)
 end
 
 function startServer(filetype, callback)
-	local wd, _ = os.Getwd()
+	local wd, _ = go_os.Getwd()
 	rootUri = fmt.Sprintf("file://%s", wd)
-	local envSettings, _ = os.Getenv("MICRO_LSP")
+	local envSettings, _ = go_os.Getenv("MICRO_LSP")
 	local settings = config.GetGlobalOption("lsp.server")
 	local fallback = "python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,markdown=deno lsp,json=deno lsp,jsonc=deno lsp,rust=rls,lua=lua-lsp"
 	if envSettings ~= nil and #envSettings > 0 then
@@ -84,16 +86,16 @@ function startServer(filetype, callback)
 		if filetype == part[1] then
 		local send = withSend(part[1])
 		if cmd[part[1]] ~= nil then return; end
-		id[part[1]] = 0
-		micro.Log("Starting server", part[1])
-		cmd[part[1]] = shell.JobSpawn(runCmd, args, onStdout(part[1]), onStderr, onExit(part[1]), {})
-		currentAction[part[1]] = { method = "initialize", response = function (bp, data)
-		    send("initialized", "{}", true)
-			capabilities[filetype] = data.result and data.result.capabilities or {}
-		    callback(bp.Buf, filetype)
-		end }
-		send(currentAction[part[1]].method, fmt.Sprintf('{"processId": %.0f, "rootUri": "%s", "workspaceFolders": [{"name": "root", "uri": "%s"}], "initializationOptions": %s, "capabilities": {"textDocument": {"hover": {"contentFormat": ["plaintext", "markdown"]}, "publishDiagnostics": {"relatedInformation": false, "versionSupport": false, "codeDescriptionSupport": true, "dataSupport": true}, "signatureHelp": {"signatureInformation": {"documentationFormat": ["plaintext", "markdown"]}}}}}', os.Getpid(), rootUri, rootUri, initOptions))
-		return
+			id[part[1]] = 0
+			micro.Log("Starting server", part[1])
+			cmd[part[1]] = shell.JobSpawn(runCmd, args, onStdout(part[1]), onStderr, onExit(part[1]), {})
+			currentAction[part[1]] = { method = "initialize", response = function (bp, data)
+			    send("initialized", "{}", true)
+				capabilities[filetype] = data.result and data.result.capabilities or {}
+			    callback(bp.Buf, filetype)
+			end }
+			send(currentAction[part[1]].method, fmt.Sprintf('{"processId": %.0f, "rootUri": "%s", "workspaceFolders": [{"name": "root", "uri": "%s"}], "initializationOptions": %s, "capabilities": {"textDocument": {"hover": {"contentFormat": ["plaintext", "markdown"]}, "publishDiagnostics": {"relatedInformation": false, "versionSupport": false, "codeDescriptionSupport": true, "dataSupport": true}, "signatureHelp": {"signatureInformation": {"documentationFormat": ["plaintext", "markdown"]}}}}}', go_os.Getpid(), rootUri, rootUri, initOptions))
+			return
 		end
 	end
 end
@@ -101,8 +103,10 @@ end
 function init()
 	config.RegisterCommonOption("lsp", "server", "python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,rust=rls,lua=lua-lsp")
 	config.RegisterCommonOption("lsp", "formatOnSave", true)
-
+	config.RegisterCommonOption("lsp", "autocompleteDetails", false)
 	config.RegisterCommonOption("lsp", "ignoreMessages", "")
+	config.RegisterCommonOption("lsp", "tabcompletion", true)
+	config.RegisterCommonOption("lsp", "ignoreTriggerCharacters", "completion")
 	-- example to ignore all LSP server message starting with these strings:
 	-- "lsp.ignoreMessages": "Skipping analyzing |See https://"
 	
@@ -137,23 +141,42 @@ function withSend(filetype)
 	end
 end
 
+function preRune(bp, r)
+	if splitBP ~= nil then
+		pcall(function () splitBP:Unsplit(); end)
+		splitBP = nil
+		local cur = bp.Buf:GetActiveCursor()
+		cur:Deselect(false);
+		cur:GotoLoc(buffer.Loc(cur.X + 1, cur.Y))
+	end
+end
+
 -- when a new character is types, the document changes
 function onRune(bp, r)
 	local filetype = bp.Buf:FileType()
 	if cmd[filetype] == nil then
 		return
 	end
+	if splitBP ~= nil then
+		pcall(function () splitBP:Unsplit(); end)
+		splitBP = nil
+	end
+
 	local send = withSend(filetype)
 	local uri = getUriFromBuf(bp.Buf)
+	if r ~= nil then
+		lastCompletion = {}
+	end
 	-- allow the document contents to be escaped properly for the JSON string
 	local content = util.String(bp.Buf:Bytes()):gsub("\\", "\\\\"):gsub("\n", "\\n"):gsub("\r", "\\r"):gsub('"', '\\"'):gsub("\t", "\\t")
 	-- increase change version
 	version[uri] = (version[uri] or 0) + 1
 	send("textDocument/didChange", fmt.Sprintf('{"textDocument": {"version": %.0f, "uri": "%s"}, "contentChanges": [{"text": "%s"}]}', version[uri], uri, content), true)
+	local ignored = mysplit(config.GetGlobalOption("lsp.ignoreTriggerCharacters") or '', ",")
 	if r and capabilities[filetype] then
-		if capabilities[filetype].completionProvider and capabilities[filetype].completionProvider.triggerCharacters and contains(capabilities[filetype].completionProvider.triggerCharacters, r) then
+		if not contains(ignored, "completion") and capabilities[filetype].completionProvider and capabilities[filetype].completionProvider.triggerCharacters and contains(capabilities[filetype].completionProvider.triggerCharacters, r) then
 			completionAction(bp)
-		elseif capabilities[filetype].signatureHelpProvider and capabilities[filetype].signatureHelpProvider.triggerCharacters and contains(capabilities[filetype].signatureHelpProvider.triggerCharacters, r) then
+		elseif not contains(ignored, "signature") and capabilities[filetype].signatureHelpProvider and capabilities[filetype].signatureHelpProvider.triggerCharacters and contains(capabilities[filetype].signatureHelpProvider.triggerCharacters, r) then
 			hoverAction(bp)
 		end
 	end
@@ -173,6 +196,13 @@ function onIndent(bp) onRune(bp); end
 function onIndentSelection(bp) onRune(bp); end
 function onPaste(bp) onRune(bp); end
 function onSave(bp) onRune(bp); end
+
+function onEscape(bp) 
+	if splitBP ~= nil then
+		pcall(function () splitBP:Unsplit(); end)
+		splitBP = nil
+	end
+end
 
 function preInsertNewline(bp)
 	if bp.Buf.Path == "References found" then
@@ -200,7 +230,6 @@ function preSave(bp)
 end
 
 function handleInitialized(buf, filetype)
-    micro.Log("HANDLE INITIALIZED", filetype, cmd)
 	if cmd[filetype] == nil then return; end
 	micro.Log("Found running lsp server for ", filetype, "firing textDocument/didOpen...")
 	local send = withSend(filetype)
@@ -231,6 +260,24 @@ end
 
 function string.ends(String, End)
 	return string.sub(String, #String - (#End - 1), #String) == End
+end
+
+function string.random(CharSet, Length, prefix)
+
+   local _CharSet = CharSet or '.'
+
+   if _CharSet == '' then
+      return ''
+   else
+      local Result = prefix or ""
+      math.randomseed(os.time())
+      for Loop = 1,Length do
+	      local char = math.random(1, #CharSet)
+         Result = Result .. CharSet:sub(char,char)
+      end
+
+      return Result
+   end
 end
 
 function string.parse(text)
@@ -304,7 +351,7 @@ function onStdout(filetype)
 		elseif currentAction[filetype] and currentAction[filetype].method and currentAction[filetype].response and data.jsonrpc then
 			-- react to custom action event
 			local bp = micro.CurPane()
-			micro.Log(filetype .. " handling ", data)
+			--micro.Log(filetype .. " handling ", data)
 			currentAction[filetype].response(bp, data)
 			currentAction[filetype] = {}
 		elseif data.method == "window/showMessage" or data.method == "window\\/showMessage" then
@@ -401,7 +448,6 @@ end
 
 function completionAction(bp)
 	local filetype = bp.Buf:FileType()
-	if cmd[filetype] == nil then return; end
 	local send = withSend(filetype)
 	local file = bp.Buf.AbsPath
 	local line = bp.Buf:GetActiveCursor().Y
@@ -411,7 +457,32 @@ function completionAction(bp)
 		completionCursor = completionCursor + 1
 	else
 		completionCursor = 0
+		if bp.Cursor:HasSelection() then
+			-- we have a selection
+			-- assume we want to indent the selection
+			bp:IndentSelection()
+			return
+		end
+		if char == 0 then
+			-- we are at the very first character of a line
+			-- assume we want to indent
+			bp:IndentLine()
+			return
+		end
+		local cur = bp.Buf:GetActiveCursor()
+		cur:SelectLine()
+		local lineContent = util.String(cur:GetSelection())
+		cur:ResetSelection()
+		cur:GotoLoc(buffer.Loc(char, line))
+		local startOfLine = "" .. lineContent:sub(1, char)
+		if startOfLine:match("^%s+$") then
+			-- we are at the beginning of a line
+			-- assume we want to indent the line
+			bp:IndentLine()
+			return
+		end
 	end
+	if cmd[filetype] == nil then return; end
 	lastCompletion = {file, line, char}
 	currentAction[filetype] = { method = "textDocument/completion", response = completionActionResponse }
 	send(currentAction[filetype].method, fmt.Sprintf('{"textDocument": {"uri": "file://%s"}, "position": {"line": %.0f, "character": %.0f}}', file, line, char))
@@ -425,6 +496,34 @@ table.filter = function(t, filterIter)
   end
 
   return out
+end
+
+function findCommon(input, list)
+	local commonLen = 0
+	local prefixList = {}
+	local str = input.textEdit and input.textEdit.newText or input.label
+	for i = 1,#str,1 do
+		local prefix = str:sub(1, i)
+		prefixList[prefix] = 0
+		for idx, entry in ipairs(list) do
+			local currentEntry = entry.textEdit and entry.textEdit.newText or entry.label
+			if currentEntry:starts(prefix) then
+				prefixList[prefix] = prefixList[prefix] + 1
+			end
+		end
+	end
+	local longest = ""
+	for idx, entry in pairs(prefixList) do
+		if entry >= #list then
+			if #longest < #idx then
+				longest = idx
+			end
+		end
+	end
+	if #list == 1 then
+		return list[1].textEdit and list[1].textEdit.newText or list[1].label
+	end
+	return longest
 end
 
 function completionActionResponse(bp, data)
@@ -445,6 +544,8 @@ function completionActionResponse(bp, data)
 	local found = false
 	local prefix = ""
 	local reversed = ""
+	-- if we have no defined ranges in the result
+	-- try to find out what our prefix is we want to filter against
 	if not results[1] or not results[1].textEdit then
 		if capabilities[bp.Buf:FileType()] and capabilities[bp.Buf:FileType()].completionProvider and capabilities[bp.Buf:FileType()].completionProvider.triggerCharacters then
 			local cur = bp.Buf:GetActiveCursor()
@@ -466,8 +567,13 @@ function completionActionResponse(bp, data)
 					break
 				end
 			end
+			if not found then
+				prefix = lineContent:gsub("\r?\n$", '')
+			end
 		end
+		-- if we have found a prefix
 		if prefix ~= "" then
+		    -- filter it down to what is suggested by the prefix
 			results = table.filter(results, function (entry)
 				return entry.label:starts(prefix)
 			end)
@@ -479,9 +585,24 @@ function completionActionResponse(bp, data)
 	end)
 	
 	entry = results[(completionCursor % #results) + 1]
+	-- if no matching results are found
 	if entry == nil then 
+	    -- reposition cursor and stop
 		bp.Cursor:GotoLoc(xy)
 		return
+	end
+	local commonStart = ''
+	local toInsert = entry.textEdit and entry.textEdit.newText or entry.label
+	local isTabCompletion = config.GetGlobalOption("lsp.tabCompletion")
+	if isTabCompletion then
+		commonStart = findCommon(entry, results)
+		bp.Buf:Insert(start, commonStart)
+		if prefix ~= commonStart then
+			return
+		end
+		start = buffer.Loc(start.X + #prefix, start.Y)
+	else
+		prefix = ''
 	end
 
 	if entry.textEdit then
@@ -505,30 +626,95 @@ function completionActionResponse(bp, data)
 			bp.Cursor:ResetSelection()
 		end
 	end
-	bp.Buf:insert(start, entry.textEdit and entry.textEdit.newText or entry.label)
-	if entry.textEdit then
-		bp.Cursor:GotoLoc(start)
-		bp.Cursor:SetSelectionStart(start)
+	local inserting = "" .. toInsert:gsub(prefix, "")
+	bp.Buf:Insert(start, inserting)
+	
+	if #results > 1 then
+		if entry.textEdit then
+			bp.Cursor:GotoLoc(start)
+			bp.Cursor:SetSelectionStart(start)
+		else
+			-- if we had to calculate everything outselves
+			-- go back to the original location
+			bp.Cursor:GotoLoc(xy)
+			bp.Cursor:SetSelectionStart(xy)
+		end
+		bp.Cursor:SetSelectionEnd(buffer.Loc(start.X + #toInsert, start.Y))
 	else
-		-- if we had to calculate everything outselves
-		-- go back to the original location
-		bp.Cursor:GotoLoc(xy)
-		bp.Cursor:SetSelectionStart(xy)
+		bp.Cursor:GotoLoc(buffer.Loc(start.X + #inserting, start.Y))
 	end
-	bp.Cursor:SetSelectionEnd(buffer.Loc(start.X + #(entry.textEdit and entry.textEdit.newText or entry.label), start.Y))
-
+	
+	local startLoc = buffer.Loc(0, 0)
+	local endLoc = buffer.Loc(0, 0)	
 	local msg = ''
+	local insertion = ''
 	if entry.detail or entry.documentation then
-		msg = fmt.Sprintf("%s %s", entry.detail or '', entry.documentation or '')
-	else
+		insertion = fmt.Sprintf("%s", entry.detail or entry.documentation or '')
 		for idx, result in ipairs(results) do
-			if idx >= (completionCursor % #results) + 1 then 
-				if msg ~= '' then msg = msg .. '  '; end
-				msg = msg .. result.label
+			if #msg > 0 then
+				msg = msg .. "\n"
 			end
+			local insertion = fmt.Sprintf("%s %s", result.detail or '', result.documentation or '')
+			if idx == (completionCursor % #results) + 1 then
+				local msglines = mysplit(msg, "\n")
+				startLoc = buffer.Loc(0, #msglines)
+				endLoc = buffer.Loc(#insertion - 1, #msglines)
+			end
+			msg = msg .. insertion
+		end
+	else
+		insertion = entry.label
+		for idx, result in ipairs(results) do
+			if #msg > 0 then
+				local msglines = mysplit(msg, "\n")
+				local lastLine = msglines[#msglines]
+				local len = #result.label + 4
+				if #lastLine + len >= bp:GetView().Width then
+					msg = msg .. "\n  "
+				else 
+					msg = msg .. '  '
+				end
+			else
+				msg = "  "
+			end
+			if idx == (completionCursor % #results) + 1 then
+				local msglines = mysplit(msg, "\n")
+				local prefixLen = 0
+				if #msglines > 0 then
+		    		prefixLen = #msglines[#msglines]
+		    	else
+		    		prefixLen = #msg
+		    	end
+				startLoc = buffer.Loc(prefixLen or 0, #msglines - 1)
+				endLoc = buffer.Loc(prefixLen + #result.label, #msglines - 1)
+			end
+			msg = msg .. result.label
 		end
 	end
-	micro.InfoBar():Message(msg)
+	if config.GetGlobalOption("lsp.autocompleteDetails") then
+		if not splitBP then
+			local tmpName = ("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"):random(32)
+			local logBuf = buffer.NewBuffer(msg, tmpName)
+			splitBP = bp:HSplitBuf(logBuf)
+			bp:NextSplit()
+		else
+			splitBP:SelectAll()
+			splitBP.Cursor:DeleteSelection()
+			splitBP.Cursor:ResetSelection()
+			splitBP.Buf:insert(buffer.Loc(1, 1), msg)
+		end
+		splitBP.Cursor:ResetSelection()
+		splitBP.Cursor:SetSelectionStart(startLoc)
+		splitBP.Cursor:SetSelectionEnd(endLoc)
+	else
+		if entry.detail or entry.documentation then
+			micro.InfoBar():Message(insertion)
+		else
+			local cleaned = " " .. msg:gsub("%s+", "  ")
+			local replaced, _ = cleaned:gsub(".*%s" .. insertion .. "%s?", " [" .. insertion .. "] ")
+			micro.InfoBar():Message(replaced)
+		end
+	end
 end
 
 function formatAction(bp, callback)

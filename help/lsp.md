@@ -111,7 +111,7 @@ In this case, it's fmt/print.go. As Go reference documentation is in code
 comments, this is very convenient. You can navigate between tabs with atl-,
 (alt-comma) and alt-. (alt - full stop). To close the tab, press Ctrl-Q.
 
-### Markdown, JSON, Typescript, Javascript
+### Markdown, JSON/JSONC, Typescript, Javascript
 
 The Deno LSP server will provide full support for Typescript and Javascript.
 Additionally, it supports formatting for Markdown and JSON files. The
@@ -206,54 +206,77 @@ def square(x: int) -> int:
 	return x*x
 ```
 
-Depending on your project, taste and installed linters, pylsp sometimes shows warnings you would like to hide. Hiding messages is possible using lsp.ignoreMessages, explained in later in this help document. 
+Depending on your project, taste and installed linters, pylsp sometimes shows
+warnings you would like to hide. Hiding messages is possible using
+lsp.ignoreMessages, explained in later in this help document.
 
 ### lua-lsp, Lua language server
 
-These are the initial installation instructions. This installation will support linter messages in the gutter (on the left of editing area) and jump to definition inside the same file (alt-D). All LSP features are not yet supported with Lua. 
+These are the initial installation instructions. This installation will support
+linter messages in the gutter (on the left of editing area) and jump to
+definition inside the same file (alt-D). All LSP features are not yet supported
+with Lua.
 
-Install 'luarocks' command using your package manager. For example, on Debian 
+Install 'luarocks' command using your package manager. For example, on Debian
 
-	$ sudo apt-get update
-	$ sudo apt-get -y install luarocks
+    $ sudo apt-get update
+    $ sudo apt-get -y install luarocks
 
 Use luarocks to install helper packages used by lua-lsp
 
-	$ sudo luarocks install luacheck
-	$ sudo luarocks install Formatter
-	$ sudo luarocks install lcf
+    $ sudo luarocks install luacheck
+    $ sudo luarocks install Formatter
+    $ sudo luarocks install lcf
 
 Install lua-lsp, the Lua language server
 
-	$ sudo luarocks install --server=ssh://luarocks.org/dev lua-lsp
+    $ sudo luarocks install --server=ssh://luarocks.org/dev lua-lsp
 
-This command uses different URL from official lua-lsp instructions due to [a change in how packages are downloaded](https://github.com/Alloyed/lua-lsp/issues/45). This command uses ssh instead of http. 
+This command uses different URL from official lua-lsp instructions due to
+[a change in how packages are downloaded](https://github.com/Alloyed/lua-lsp/issues/45).
+This command uses ssh instead of http.
 
 To test it, open a Lua file
 
-	$ micro $HOME/.config/micro/plug/lsp/main.lua
+    $ micro $HOME/.config/micro/plug/lsp/main.lua
 
-Can you see some linter warnings ">>" in the gutter? Can you jump to functions inside the same file with Alt-D? Well done, you've installed Lua LSP support for micro. 
+Can you see some linter warnings ">>" in the gutter? Can you jump to functions
+inside the same file with Alt-D? Well done, you've installed Lua LSP support for
+micro.
 
-All features don't work yet with Lua LSP. 
+All features don't work yet with Lua LSP.
 
 ## Ignoring unhelpful messages
 
-In addition to providing assistance while coding, some language servers can show spurious, unnecessary or too oppinionated messages. Sometimes, it's not obvious how these messages are disable using language server settings.
+In addition to providing assistance while coding, some language servers can show
+spurious, unnecessary or too oppinionated messages. Sometimes, it's not obvious
+how these messages are disable using language server settings.
 
-This plugin allows you to selectively ignore unwanted warnings while keeping others. This is done my matching the start of the message. By default, nothing is ignored. 
+This plugin allows you to selectively ignore unwanted warnings while keeping
+others. This is done my matching the start of the message. By default, nothing
+is ignored.
 
-Consider a case where you're working with an external Python project that indents with tabs. When joining an existing project, you might not want to impose your own conventions to every code file. On the other hand, LSP support is not useful if nearly every line is marked with a warning. 
+Consider a case where you're working with an external Python project that
+indents with tabs. When joining an existing project, you might not want to
+impose your own conventions to every code file. On the other hand, LSP support
+is not useful if nearly every line is marked with a warning.
 
-Moving the cursor to a line with the warning, you see that the line starts with "W191 indentation contains tabs". This, and similar unhelpful messages (in the context of your current project) can be ignored by editing ~/.config/micro/settings.json
+Moving the cursor to a line with the warning, you see that the line starts with
+"W191 indentation contains tabs". This, and similar unhelpful messages (in the
+context of your current project) can be ignored by editing
+~/.config/micro/settings.json
 
 ```json
 {
-	"lsp.ignoreMessages": "Skipping analyzing |W191 indentation contains tabs|E101 indentation contains mixed spaces and tabs|See https://mypy.readthedocs.io/en",
+  "lsp.ignoreMessages": "Skipping analyzing |W191 indentation contains tabs|E101 indentation contains mixed spaces and tabs|See https://mypy.readthedocs.io/en"
 }
 ```
 
-As you now open the same file, you can see that warning "W191 indentation contains tabs" is no longer shown. Also the warning mark ">>" in the gutter is gone. Try referring to a variable that does not exist, and you can see a helpful warning appear. You have now disabled the warnings you don't need, while keeping the useful ones. 
+As you now open the same file, you can see that warning "W191 indentation
+contains tabs" is no longer shown. Also the warning mark ">>" in the gutter is
+gone. Try referring to a variable that does not exist, and you can see a helpful
+warning appear. You have now disabled the warnings you don't need, while keeping
+the useful ones.
 
 ## See also
 

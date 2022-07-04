@@ -593,7 +593,7 @@ function completionActionResponse(bp, data)
 	end
 	local commonStart = ''
 	local toInsert = entry.textEdit and entry.textEdit.newText or entry.label
-	local isTabCompletion = config.GetGlobalOption("lsp.tabCompletion")
+	local isTabCompletion = config.GetGlobalOption("lsp.tabcompletion")
 	if isTabCompletion then
 		commonStart = findCommon(entry, results)
 		bp.Buf:Insert(start, commonStart)

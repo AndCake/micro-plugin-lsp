@@ -41,6 +41,9 @@ Example:
 {
 	"lsp.server": "python=pyls,go=gopls,typescript=deno lsp,rust=rls",
 	"lsp.formatOnSave": true,
+	"lsp.ignoreMessages": "LS message1 to ignore|LS message 2 to ignore|...",
+	"lsp.tabcompletion": true,
+	"lsp.ignoreTriggerCharacters", "completion,signature",
 	"lsp.autocompleteDetails": false
 }
 ```
@@ -68,7 +71,7 @@ python=pylsp,go=gopls,rust=rls,lua=lua-lsp,typescript=deno lsp,javascript=deno l
 ```
 
 The option `lsp.autocompleteDetails` allows for showing all auto-completions in
-a horizontally split buffer view.
+a horizontally split buffer view (true) instead of the status line (false).
 
 ## Testing
 

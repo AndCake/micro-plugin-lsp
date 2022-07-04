@@ -92,6 +92,7 @@ function init()
 	config.RegisterCommonOption("lsp", "formatOnSave", true)
 	config.RegisterCommonOption("lsp", "autocompleteDetails", false)
 	config.RegisterCommonOption("lsp", "ignoreMessages", "")
+	config.RegisterCommonOption("lsp", "tabcompletion", true)
 	config.RegisterCommonOption("lsp", "ignoreTriggerCharacters", "completion")
 	-- example to ignore all LSP server message starting with these strings:
 	-- "lsp.ignoreMessages": "Skipping analyzing |See https://"
@@ -131,7 +132,9 @@ function preRune(bp, r)
 	if splitBP ~= nil then
 		pcall(function () splitBP:Unsplit(); end)
 		splitBP = nil
-		bp.Buf:GetActiveCursor():Deselect(false);
+		local cur = bp.Buf:GetActiveCursor()
+		cur:Deselect(false);
+		cur:GotoLoc(buffer.Loc(cur.X + 1, cur.Y))
 	end
 end
 
@@ -459,7 +462,6 @@ function completionAction(bp)
 		cur:ResetSelection()
 		cur:GotoLoc(buffer.Loc(char, line))
 		local startOfLine = "" .. lineContent:sub(1, char)
-		micro.Log("START OF LINE", '"'..startOfLine..'"')
 		if startOfLine:match("^%s+$") then
 			-- we are at the beginning of a line
 			-- assume we want to indent the line
@@ -497,7 +499,6 @@ function findCommon(input, list)
 			end
 		end
 	end
-	micro.Log("FINDCOMMON", prefixList)
 	local longest = ""
 	for idx, entry in pairs(prefixList) do
 		if entry >= #list then
@@ -506,7 +507,6 @@ function findCommon(input, list)
 			end
 		end
 	end
-	micro.Log("LONGEST", longest, mostFrequent)
 	if #list == 1 then
 		return list[1].textEdit and list[1].textEdit.newText or list[1].label
 	end
@@ -578,14 +578,19 @@ function completionActionResponse(bp, data)
 		bp.Cursor:GotoLoc(xy)
 		return
 	end
-	local commonStart = findCommon(entry, results)
+	local commonStart = ''
 	local toInsert = entry.textEdit and entry.textEdit.newText or entry.label
-	bp.Buf:Insert(start, commonStart)
-	if prefix ~= commonStart then
-		return
+	local isTabCompletion = config.GetGlobalOption("lsp.tabCompletion")
+	if isTabCompletion then
+		commonStart = findCommon(entry, results)
+		bp.Buf:Insert(start, commonStart)
+		if prefix ~= commonStart then
+			return
+		end
+		start = buffer.Loc(start.X + #prefix, start.Y)
+	else
+		prefix = ''
 	end
-	micro.Log("COMMONSTART", prefix, toInsert, start, xy)
-	start = buffer.Loc(start.X + #prefix, start.Y)
 
 	if entry.textEdit then
 		start = buffer.Loc(entry.textEdit.range.start.character, entry.textEdit.range.start.line)

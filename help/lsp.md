@@ -206,6 +206,8 @@ def square(x: int) -> int:
 	return x*x
 ```
 
+Depending on your project, taste and installed linters, pylsp sometimes shows warnings you would like to hide. Hiding messages is possible using lsp.ignoreMessages, explained in later in this help document. 
+
 ### lua-lsp, Lua language server
 
 These are the initial installation instructions. This installation will support linter messages in the gutter (on the left of editing area) and jump to definition inside the same file (alt-D). All LSP features are not yet supported with Lua. 
@@ -234,6 +236,24 @@ To test it, open a Lua file
 Can you see some linter warnings ">>" in the gutter? Can you jump to functions inside the same file with Alt-D? Well done, you've installed Lua LSP support for micro. 
 
 All features don't work yet with Lua LSP. 
+
+## Ignoring unhelpful messages
+
+In addition to providing assistance while coding, some language servers can show spurious, unnecessary or too oppinionated messages. Sometimes, it's not obvious how these messages are disable using language server settings.
+
+This plugin allows you to selectively ignore unwanted warnings while keeping others. This is done my matching the start of the message. By default, nothing is ignored. 
+
+Consider a case where you're working with an external Python project that indents with tabs. When joining an existing project, you might not want to impose your own conventions to every code file. On the other hand, LSP support is not useful if nearly every line is marked with a warning. 
+
+Moving the cursor to a line with the warning, you see that the line starts with "W191 indentation contains tabs". This, and similar unhelpful messages (in the context of your current project) can be ignored by editing ~/.config/micro/settings.json
+
+```json
+{
+	"lsp.ignoreMessages": "Skipping analyzing |W191 indentation contains tabs|E101 indentation contains mixed spaces and tabs|See https://mypy.readthedocs.io/en",
+}
+```
+
+As you now open the same file, you can see that warning "W191 indentation contains tabs" is no longer shown. Also the warning mark ">>" in the gutter is gone. Try referring to a variable that does not exist, and you can see a helpful warning appear. You have now disabled the warnings you don't need, while keeping the useful ones. 
 
 ## See also
 

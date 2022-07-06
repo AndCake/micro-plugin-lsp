@@ -138,7 +138,7 @@ Once it has been installed, you can use it like so:
 
 Press ctrl-e and type in:
 
-    set lsp.server "typescript=typescript-language-server --stdio,javascript=typescript-language-server --stdio"
+    set lsp.server "python=pylsp,go=gopls,typescript=typescript-language-server --stdio,javascript=typescript-language-server --stdio,rust=rls,lua=lua-lsp"
 
 After you restarted micro, you can use the features for typescript and
 javascript accordingly.
@@ -245,18 +245,6 @@ inside the same file with Alt-D? Well done, you've installed Lua LSP support for
 micro.
 
 All features don't work yet with Lua LSP.
-
-### zls, ZIG language server
-
-The ZIG language server provides formatting, goto definition, auto-completion as
-well as hover and references. It can be installed by following
-[these instruction](https://github.com/zigtools/zls).
-
-Once installed, open micro, press ctrl+e and type the following command:
-
-    set lsp.server zig=zls
-
-Close micro again and open a zig file.
 
 ## Ignoring unhelpful messages
 

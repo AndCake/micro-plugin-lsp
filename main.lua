@@ -76,12 +76,7 @@ function startServer(filetype, callback)
 	if envSettings ~= nil and #envSettings > 0 then
 		settings = envSettings
 	end
-	if settings ~= nil and #settings > 0 then
-		settings = fallback .. "," .. settings
-	else
-		settings = fallback
-	end
-	local server = parseOptions(settings)
+	local server = parseOptions(settings or fallback)
 	for i in pairs(server) do
 		local part = mysplit(server[i], "=")
 		local run = mysplit(part[2], "%s")
@@ -106,7 +101,7 @@ function startServer(filetype, callback)
 end
 
 function init()
-	config.RegisterCommonOption("lsp", "server", "python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,markdown=deno lsp,json=deno lsp,jsonc=deno lsp,rust=rls,lua=lua-lsp")
+	config.RegisterCommonOption("lsp", "server", "python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,rust=rls,lua=lua-lsp")
 	config.RegisterCommonOption("lsp", "formatOnSave", true)
 	config.RegisterCommonOption("lsp", "autocompleteDetails", false)
 	config.RegisterCommonOption("lsp", "ignoreMessages", "")
@@ -141,7 +136,7 @@ function withSend(filetype)
 		local msg = fmt.Sprintf('{"jsonrpc": "2.0", %s"method": "%s", "params": %s}', not isNotification and fmt.Sprintf('"id": %.0f, ', id[filetype]) or "", method, params)
 		id[filetype] = id[filetype] + 1
 		msg = fmt.Sprintf("Content-Length: %.0f\r\n\r\n%s", #msg, msg)
-		--micro.Log("send", filetype, "sending", method or msg, msg)
+		micro.Log("send", filetype, "sending", method or msg, msg)
 		shell.JobSend(cmd[filetype], msg)
 	end
 end
@@ -236,7 +231,7 @@ end
 
 function handleInitialized(buf, filetype)
 	if cmd[filetype] == nil then return; end
-	--micro.Log("Found running lsp server for ", filetype, "firing textDocument/didOpen...")
+	micro.Log("Found running lsp server for ", filetype, "firing textDocument/didOpen...")
 	local send = withSend(filetype)
 	local uri = getUriFromBuf(buf)
 	local content = util.String(buf:Bytes()):gsub("\\", "\\\\"):gsub("\n", "\\n"):gsub("\r", "\\r"):gsub('"', '\\"'):gsub("\t", "\\t")
@@ -245,7 +240,7 @@ end
 
 function onBufferOpen(buf)
 	local filetype = buf:FileType()
-	--micro.Log("ONBUFFEROPEN", filetype)
+	micro.Log("ONBUFFEROPEN", filetype)
 	if filetype ~= "unknown" and rootUri == "" and not cmd[filetype] then return startServer(filetype, handleInitialized); end
 	if cmd[filetype] then
 	    handleInitialized(buf, filetype)
@@ -326,7 +321,6 @@ function onStdout(filetype)
 		if data == false then
 			return
 		end
-		
 		if data.method == "workspace/configuration" then
 		    -- actually needs to respond with the same ID as the received JSON
 			local message = fmt.Sprintf('{"jsonrpc": "2.0", "id": %.0f, "result": [{"enable": true}]}', data.id)
@@ -354,8 +348,10 @@ function onStdout(filetype)
 		            end
 				end
 			end
-		elseif currentAction[filetype] and currentAction[filetype].method and not data.method and currentAction[filetype].response and data.jsonrpc then			-- react to custom action event
+		elseif currentAction[filetype] and currentAction[filetype].method and currentAction[filetype].response and data.jsonrpc then
+			-- react to custom action event
 			local bp = micro.CurPane()
+			--micro.Log(filetype .. " handling ", data)
 			currentAction[filetype].response(bp, data)
 			currentAction[filetype] = {}
 		elseif data.method == "window/showMessage" or data.method == "window\\/showMessage" then
@@ -550,7 +546,7 @@ function completionActionResponse(bp, data)
 	local reversed = ""
 	-- if we have no defined ranges in the result
 	-- try to find out what our prefix is we want to filter against
-	if not results[1] or not results[1].textEdit or not results[1].textEdit.range then
+	if not results[1] or not results[1].textEdit then
 		if capabilities[bp.Buf:FileType()] and capabilities[bp.Buf:FileType()].completionProvider and capabilities[bp.Buf:FileType()].completionProvider.triggerCharacters then
 			local cur = bp.Buf:GetActiveCursor()
 			cur:SelectLine()
@@ -609,7 +605,7 @@ function completionActionResponse(bp, data)
 		prefix = ''
 	end
 
-	if entry.textEdit and entry.textEdit.range then
+	if entry.textEdit then
 		start = buffer.Loc(entry.textEdit.range.start.character, entry.textEdit.range.start.line)
 		bp.Cursor:SetSelectionStart(start)
 		bp.Cursor:SetSelectionEnd(xy)

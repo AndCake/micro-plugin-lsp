@@ -56,11 +56,11 @@ end
 
 function parseOptions(inputstr)
 	local t = {}
-	inputstr = inputstr:gsub("%w+=[^=,]+={.-}", function (str)
+	inputstr = inputstr:gsub("[%w+_-]+=[^=,]+={.-}", function (str)
 		table.insert(t, str)
 		return '';
 	end)
-	inputstr = inputstr:gsub("%w+=[^=,]+", function (str)
+	inputstr = inputstr:gsub("[%w+_-]+=[^=,]+", function (str)
 		table.insert(t, str)
 		return '';
 	end)
@@ -77,11 +77,12 @@ function startServer(filetype, callback)
 		settings = envSettings
 	end
 	if settings ~= nil and #settings > 0 then
-		settings = fallback .. "," .. settings
+		settings = settings .. "," .. fallback
 	else
 		settings = fallback
 	end
 	local server = parseOptions(settings)
+	micro.Log("Server Options", server)
 	for i in pairs(server) do
 		local part = mysplit(server[i], "=")
 		local run = mysplit(part[2], "%s")
@@ -236,7 +237,7 @@ end
 
 function handleInitialized(buf, filetype)
 	if cmd[filetype] == nil then return; end
-	--micro.Log("Found running lsp server for ", filetype, "firing textDocument/didOpen...")
+	micro.Log("Found running lsp server for ", filetype, "firing textDocument/didOpen...")
 	local send = withSend(filetype)
 	local uri = getUriFromBuf(buf)
 	local content = util.String(buf:Bytes()):gsub("\\", "\\\\"):gsub("\n", "\\n"):gsub("\r", "\\r"):gsub('"', '\\"'):gsub("\t", "\\t")
@@ -245,7 +246,7 @@ end
 
 function onBufferOpen(buf)
 	local filetype = buf:FileType()
-	--micro.Log("ONBUFFEROPEN", filetype)
+	micro.Log("ONBUFFEROPEN", filetype)
 	if filetype ~= "unknown" and rootUri == "" and not cmd[filetype] then return startServer(filetype, handleInitialized); end
 	if cmd[filetype] then
 	    handleInitialized(buf, filetype)
@@ -356,6 +357,7 @@ function onStdout(filetype)
 			end
 		elseif currentAction[filetype] and currentAction[filetype].method and not data.method and currentAction[filetype].response and data.jsonrpc then			-- react to custom action event
 			local bp = micro.CurPane()
+			micro.Log("Received message for ", filetype, data)
 			currentAction[filetype].response(bp, data)
 			currentAction[filetype] = {}
 		elseif data.method == "window/showMessage" or data.method == "window\\/showMessage" then
@@ -379,7 +381,7 @@ end
 
 function onStderr(text)
 	micro.Log("ONSTDERR", text)
-	micro.InfoBar():Message(text)
+	--micro.InfoBar():Message(text)
 end
 
 function onExit(filetype)
@@ -598,7 +600,7 @@ function completionActionResponse(bp, data)
 	local commonStart = ''
 	local toInsert = entry.textEdit and entry.textEdit.newText or entry.label
 	local isTabCompletion = config.GetGlobalOption("lsp.tabcompletion")
-	if isTabCompletion then
+	if isTabCompletion and not entry.textEdit then
 		commonStart = findCommon(entry, results)
 		bp.Buf:Insert(start, commonStart)
 		if prefix ~= commonStart then

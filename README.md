@@ -67,7 +67,7 @@ If neither the MICRO_LSP nor the lsp.server is set, then the plugin falls back
 to the following settings:
 
 ```
-python=pylsp,go=gopls,rust=rls,lua=lua-lsp,typescript=deno lsp,javascript=deno lsp,markdown=deno lsp,json=deno lsp,jsonc=deno lsp
+python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,markdown=deno lsp,json=deno lsp,jsonc=deno lsp,rust=rls,lua=lua-lsp,c++=clangd
 ```
 
 The option `lsp.autocompleteDetails` allows for showing all auto-completions in
@@ -77,6 +77,8 @@ a horizontally split buffer view (true) instead of the status line (false).
 
 This plugin has been tested briefly with the following language servers:
 
+- C++ [clangd](https://clangd.llvm.org) /
+  [ccls](https://github.com/MaskRay/ccls)
 - go: [gopls](https://pkg.go.dev/golang.org/x/tools/gopls#section-readme)
 - markdown, JSON, typescript, javascript (including JSX/TSX):
   [deno](https://deno.land/)

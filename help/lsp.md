@@ -21,6 +21,8 @@ There is initial support for completion (ctrl-space) (textDocument/completion).
 Installation instructions for Go and Python are provided below. LSP Plugin has
 been briefly tested with
 
+- C++: [clangd](https://clangd.llvm.org) /
+  [ccls](https://github.com/MaskRay/ccls)
 - go: [gopls](https://pkg.go.dev/golang.org/x/tools/gopls#section-readme)
 - markdown, JSON, typescript, javascript (including JSX/TSX):
   [deno](https://deno.land/)
@@ -60,7 +62,7 @@ If your lsp.server settings are autoremoved, you can
 The lsp.server default settings (if no others are defined) are:
 
 ```
-python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,rust=rls,lua=lua-lsp
+python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,markdown=deno lsp,json=deno lsp,jsonc=deno lsp,rust=rls,lua=lua-lsp,c++=clangd
 ```
 
 ## Install Language Server

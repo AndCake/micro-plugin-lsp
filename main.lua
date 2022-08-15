@@ -443,7 +443,7 @@ function definitionActionResponse(bp, data)
 	local buf = bp.Buf
 	if file ~= doc then
 		-- it's from a different file, so open it as a new tab
-		buf, _ = buffer.NewBufferFromFile("." .. uri:sub(#rootUri + 1, #uri))
+		buf, _ = buffer.NewBufferFromFile(doc)
 		bp:AddTab()
 		micro.CurPane():OpenBuffer(buf)
 	end

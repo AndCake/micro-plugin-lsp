@@ -100,7 +100,7 @@ function startServer(filetype, callback)
 				capabilities[filetype] = data.result and data.result.capabilities or {}
 			    callback(bp.Buf, filetype)
 			end }
-			send(currentAction[part[1]].method, fmt.Sprintf('{"processId": %.0f, "rootUri": "%s", "workspaceFolders": [{"name": "root", "uri": "%s"}], "initializationOptions": %s, "capabilities": {"textDocument": {"hover": {"contentFormat": ["plaintext", "markdown"]}, "publishDiagnostics": {"relatedInformation": false, "versionSupport": false, "codeDescriptionSupport": true, "dataSupport": true}, "signatureHelp": {"signatureInformation": {"documentationFormat": ["plaintext", "markdown"]}}}}}', go_os.Getpid(), rootUri, rootUri, initOptions))
+			send(currentAction[part[1]].method, fmt.Sprintf('{"processId": %.0f, "rootUri": "%s", "workspaceFolders": [{"name": "root", "uri": "%s"}], "initializationOptions": %s, "capabilities": {"textDocument": {"hover": {"contentFormat": ["plaintext", "markdown"]}, "foldingRange": {"lineFoldingOnly": true}, "publishDiagnostics": {"relatedInformation": false, "versionSupport": false, "codeDescriptionSupport": true, "dataSupport": true}, "signatureHelp": {"signatureInformation": {"documentationFormat": ["plaintext", "markdown"]}}}}}', go_os.Getpid(), rootUri, rootUri, initOptions))
 			return
 		end
 	end
@@ -121,11 +121,13 @@ function init()
 	config.MakeCommand("lspcompletion", completionAction, config.NoComplete)
 	config.MakeCommand("format", formatAction, config.NoComplete)
 	config.MakeCommand("references", referencesAction, config.NoComplete)
+	config.MakeCommand("fold", foldingRangeAction, config.NoComplete)
 
 	config.TryBindKey("Alt-k", "command:hover", false)
 	config.TryBindKey("Alt-d", "command:definition", false)
 	config.TryBindKey("Alt-f", "command:format", false)
 	config.TryBindKey("Alt-r", "command:references", false)
+	config.TryBindKey("Alt-z", "command:fold", false)
 	config.TryBindKey("CtrlSpace", "command:lspcompletion", false)
 
 	config.AddRuntimeFile("lsp", config.RTHelp, "help/lsp.md")
@@ -327,6 +329,7 @@ function onStdout(filetype)
 		if data == false then
 			return
 		end
+	    micro.Log("Received message for ", filetype, data)
 		
 		if data.method == "workspace/configuration" then
 		    -- actually needs to respond with the same ID as the received JSON
@@ -357,7 +360,6 @@ function onStdout(filetype)
 			end
 		elseif currentAction[filetype] and currentAction[filetype].method and not data.method and currentAction[filetype].response and data.jsonrpc then			-- react to custom action event
 			local bp = micro.CurPane()
-			micro.Log("Received message for ", filetype, data)
 			currentAction[filetype].response(bp, data)
 			currentAction[filetype] = {}
 		elseif data.method == "window/showMessage" or data.method == "window\\/showMessage" then
@@ -707,7 +709,7 @@ function completionActionResponse(bp, data)
 			splitBP:SelectAll()
 			splitBP.Cursor:DeleteSelection()
 			splitBP.Cursor:ResetSelection()
-			splitBP.Buf:insert(buffer.Loc(1, 1), msg)
+			splitBP.Buf:Insert(buffer.Loc(1, 1), msg)
 		end
 		splitBP.Cursor:ResetSelection()
 		splitBP.Cursor:SetSelectionStart(startLoc)
@@ -761,7 +763,7 @@ function formatActionResponse(callback)
 			bp.Cursor:ResetSelection()
 			
 			if edit.newText ~= "" then
-				bp.Buf:insert(rangeStart, edit.newText)
+				bp.Buf:Insert(rangeStart, edit.newText)
 			end
 		end
 		-- put the cursor back where it was
@@ -807,6 +809,54 @@ function referencesActionResponse(bp, data)
 
 	local logBuf = buffer.NewBuffer(msg, "References found")
 	local splitBP = bp:HSplitBuf(logBuf)
+end
+
+-- the foldingRange action request and response
+function foldingRangeAction(bp)
+	local filetype = bp.Buf:FileType()	
+	if cmd[filetype] == nil then return; end
+	
+	local send = withSend(filetype)
+	local file = bp.Buf.AbsPath
+	currentAction[filetype] = { method = "textDocument/foldingRange", response = foldingRangeActionResponse }
+	send(currentAction[filetype].method, fmt.Sprintf('{"textDocument": {"uri": "file://%s"}}', file))
+end
+
+function foldingRangeActionResponse(bp, data)
+	if data.result == nil then return; end
+	local results = data.result or data.partialResult
+	if results == nil or #results <= 0 then return; end
+
+	local file = bp.Buf.AbsPath
+	
+	local msg = ''
+	table.sort(results, function (a, b)
+    	return b.endLine < a.endLine
+	end)
+	for _idx, fold in ipairs(results) do
+        beforeRangeStart = buffer.Loc(0, fold.startLine)
+        rangeStart = buffer.Loc(0, fold.startLine + 1) -- need to select from end of previous line rather than start of this line
+        rangeEnd = buffer.Loc(0, fold.endLine + 1) -- need to select to end of previous line rather than beginning of this line
+        -- apply each change
+        bp.Cursor:GotoLoc(rangeStart)
+        bp.Cursor:SetSelectionStart(rangeStart)
+        bp.Cursor:SetSelectionEnd(rangeEnd)
+        bp.Cursor:DeleteSelection()
+        bp.Cursor:ResetSelection()
+
+        -- need to save active folds in object (including contents of folds)
+        -- on save unfold all and then save
+
+        bp.Cursor:GotoLoc(beforeRangeStart)
+		bp.Cursor:SelectLine()
+		local lineContent = util.String(bp.Cursor:GetSelection())
+		bp.Cursor:DeleteSelection()
+		bp.Cursor:ResetSelection()
+		newContent = lineContent:gsub("\n", "…")
+        bp.Buf:Insert(beforeRangeStart, newContent)
+	end
+
+    micro.Log("folding ranges ", results)
 end
 
 --

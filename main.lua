@@ -1,4 +1,4 @@
-VERSION = "0.6.1"
+VERSION = "0.6.2"
 
 local micro = import("micro")
 local config = import("micro/config")
@@ -445,9 +445,19 @@ function definitionActionResponse(bp, data)
 	local buf = bp.Buf
 	if file ~= doc then
 		-- it's from a different file, so open it as a new tab
-		buf, _ = buffer.NewBufferFromFile("." .. uri:sub(#rootUri + 1, #uri))
+		buf, _ = buffer.NewBufferFromFile(doc)
 		bp:AddTab()
 		micro.CurPane():OpenBuffer(buf)
+		-- shorten the displayed name in status bar
+		name = buf:GetName()
+    	local wd, _ = go_os.Getwd()
+		if name:starts(wd) then
+    		buf:SetName("." .. name:sub(#wd + 1, #name + 1))
+		else 
+		  if #name > 30 then
+		     buf:SetName("..." .. name:sub(-30, #name + 1))
+		  end
+		end
 	end
 	local range = results[1].range or results[1].targetSelectionRange
 	buf:GetActiveCursor():GotoLoc(buffer.Loc(range.start.character, range.start.line))

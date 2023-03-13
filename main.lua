@@ -22,6 +22,7 @@ local completionCursor = 0
 local lastCompletion = {}
 local splitBP = nil
 local tabCount = 0
+local appliedFolds = {}
 
 local json = {}
 
@@ -100,14 +101,14 @@ function startServer(filetype, callback)
 				capabilities[filetype] = data.result and data.result.capabilities or {}
 			    callback(bp.Buf, filetype)
 			end }
-			send(currentAction[part[1]].method, fmt.Sprintf('{"processId": %.0f, "rootUri": "%s", "workspaceFolders": [{"name": "root", "uri": "%s"}], "initializationOptions": %s, "capabilities": {"textDocument": {"hover": {"contentFormat": ["plaintext", "markdown"]}, "foldingRange": {"lineFoldingOnly": true}, "publishDiagnostics": {"relatedInformation": false, "versionSupport": false, "codeDescriptionSupport": true, "dataSupport": true}, "signatureHelp": {"signatureInformation": {"documentationFormat": ["plaintext", "markdown"]}}}}}', go_os.Getpid(), rootUri, rootUri, initOptions))
+			send(currentAction[part[1]].method, fmt.Sprintf('{"processId": %.0f, "rootUri": "%s", "workspaceFolders": [{"name": "root", "uri": "%s"}], "initializationOptions": %s, "capabilities": {"textDocument": {"hover": {"contentFormat": ["plaintext", "markdown"]}, "foldingRange": {"lineFoldingOnly": false, "foldingRange": {"collapsedText": true}}, "publishDiagnostics": {"relatedInformation": false, "versionSupport": false, "codeDescriptionSupport": true, "dataSupport": true}, "signatureHelp": {"signatureInformation": {"documentationFormat": ["plaintext", "markdown"]}}}}}', go_os.Getpid(), rootUri, rootUri, initOptions))
 			return
 		end
 	end
 end
 
 function init()
-	config.RegisterCommonOption("lsp", "server", "python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,markdown=deno lsp,json=deno lsp,jsonc=deno lsp,rust=rls,lua=lua-lsp,c++=clangd")
+	config.RegisterCommonOption("lsp", "server", "python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,markdown=deno lsp,json=deno lsp,jsonc=deno lsp,rust=rls,lua=lua-language-server,c++=clangd")
 	config.RegisterCommonOption("lsp", "formatOnSave", true)
 	config.RegisterCommonOption("lsp", "autocompleteDetails", false)
 	config.RegisterCommonOption("lsp", "ignoreMessages", "")
@@ -144,7 +145,7 @@ function withSend(filetype)
 		local msg = fmt.Sprintf('{"jsonrpc": "2.0", %s"method": "%s", "params": %s}', not isNotification and fmt.Sprintf('"id": %.0f, ', id[filetype]) or "", method, params)
 		id[filetype] = id[filetype] + 1
 		msg = fmt.Sprintf("Content-Length: %.0f\r\n\r\n%s", #msg, msg)
-		--micro.Log("send", filetype, "sending", method or msg, msg)
+		-- micro.Log("send", filetype, "sending", method or msg, msg)
 		shell.JobSend(cmd[filetype], msg)
 	end
 end
@@ -157,9 +158,38 @@ function preRune(bp, r)
 		cur:Deselect(false);
 		cur:GotoLoc(buffer.Loc(cur.X + 1, cur.Y))
 	end
+
+    local inserted = false
+	if #appliedFolds > 0 then
+	    -- we assume the appliedFolds is sorted (happens when applying a fold)
+	    local lineDiff = 0
+		for idx, fold in ipairs(appliedFolds) do
+		    if fold.startLine - lineDiff < bp.Cursor.Y then
+			    lineDiff = lineDiff + fold.lines
+		    end
+			if fold.startLine - lineDiff == bp.Cursor.Y then
+				-- un-apply the fold
+				micro.Log("Unfolding again", fold)
+				local rangeStart = buffer.Loc(fold.startCharacter, fold.startLine - lineDiff)
+				local rangeEnd = buffer.Loc(fold.startCharacter + fold.len - 2, fold.startLine - lineDiff)
+		        bp.Cursor:GotoLoc(rangeStart)
+		        bp.Cursor:SetSelectionStart(rangeStart)
+		        bp.Cursor:SetSelectionEnd(rangeEnd)
+   			    bp.Buf:Insert(buffer.Loc(fold.startCharacter, fold.startLine - lineDiff), fold.oldContent)
+   			    bp.Cursor:DeleteSelection()
+   			    inserted = true
+   			    table.remove(appliedFolds, idx)
+   			    break
+			end
+		end
+	end
+
+	if inserted == true then
+		return false
+	end
 end
 
--- when a new character is types, the document changes
+-- when a new character is typed, the document changes
 function onRune(bp, r)
 	local filetype = bp.Buf:FileType()
 	if cmd[filetype] == nil then
@@ -176,7 +206,20 @@ function onRune(bp, r)
 		lastCompletion = {}
 	end
 	-- allow the document contents to be escaped properly for the JSON string
-	local content = util.String(bp.Buf:Bytes()):gsub("\\", "\\\\"):gsub("\n", "\\n"):gsub("\r", "\\r"):gsub('"', '\\"'):gsub("\t", "\\t")
+	local content = util.String(bp.Buf:Bytes())
+	-- apply all folds to the content string
+	local lineDiff = 0
+	local lines = mysplit(content, "\n")
+	content = ""
+	for _idx, fold in ipairs(appliedFolds) do
+		-- un-apply the fold
+		local pre = lines[fold.startLine + 1]:sub(1, fold.startCharacter + 1)
+		local post = lines[fold.startLine + 1]:sub(fold.startCharacter + fold.len - 2, -1)
+		micro.Log("Unapply fold ", fold, "NEW CONTENT", pre .. fold.oldContent .. post, "PRE", pre, "POST", post, lines[fold.startLine + 1])
+		lines[fold.startLine + 1] = pre .. fold.oldContent .. post
+		lines = mysplit(table.concat(lines, "\n"), "\n")
+	end
+	content = table.concat(lines, "\n"):gsub("\\", "\\\\"):gsub("\n", "\\n"):gsub("\r", "\\r"):gsub('"', '\\"'):gsub("\t", "\\t")
 	-- increase change version
 	version[uri] = (version[uri] or 0) + 1
 	send("textDocument/didChange", fmt.Sprintf('{"textDocument": {"version": %.0f, "uri": "%s"}, "contentChanges": [{"text": "%s"}]}', version[uri], uri, content), true)
@@ -329,7 +372,7 @@ function onStdout(filetype)
 		if data == false then
 			return
 		end
-	    micro.Log("Received message for ", filetype, data)
+	    -- micro.Log("Received message for ", filetype, data)
 		
 		if data.method == "workspace/configuration" then
 		    -- actually needs to respond with the same ID as the received JSON
@@ -822,6 +865,7 @@ function referencesActionResponse(bp, data)
 end
 
 -- the foldingRange action request and response
+
 function foldingRangeAction(bp)
 	local filetype = bp.Buf:FileType()	
 	if cmd[filetype] == nil then return; end
@@ -832,41 +876,58 @@ function foldingRangeAction(bp)
 	send(currentAction[filetype].method, fmt.Sprintf('{"textDocument": {"uri": "file://%s"}}', file))
 end
 
-function foldingRangeActionResponse(bp, data)
+function foldingRangeActionResponse(bp, data)    
 	if data.result == nil then return; end
 	local results = data.result or data.partialResult
 	if results == nil or #results <= 0 then return; end
-
+	
 	local file = bp.Buf.AbsPath
 	
 	local msg = ''
 	table.sort(results, function (a, b)
-    	return b.endLine < a.endLine
+	    -- as small a fold as possible
+    	return (a.endLine - a.startLine) < (b.endLine - b.startLine)
 	end)
 	for _idx, fold in ipairs(results) do
-        beforeRangeStart = buffer.Loc(0, fold.startLine)
-        rangeStart = buffer.Loc(0, fold.startLine + 1) -- need to select from end of previous line rather than start of this line
-        rangeEnd = buffer.Loc(0, fold.endLine + 1) -- need to select to end of previous line rather than beginning of this line
-        -- apply each change
-        bp.Cursor:GotoLoc(rangeStart)
-        bp.Cursor:SetSelectionStart(rangeStart)
-        bp.Cursor:SetSelectionEnd(rangeEnd)
-        bp.Cursor:DeleteSelection()
-        bp.Cursor:ResetSelection()
+	    local lineDiff = 0
+	    for _i, applied in ipairs(appliedFolds) do
+	      if applied.startLine <= fold.startLine then
+		      lineDiff = lineDiff + applied.lines
+		  end
+	    end
+	    if bp.Cursor.Y >= fold.startLine - lineDiff and bp.Cursor.Y <= fold.endLine - lineDiff then
+	        micro.Log("FOLD ", fold, "Cursor: ", bp.Cursor.X, ",", bp.Cursor.Y, "LINE DIFF", lineDiff)
+	        beforeRangeStart = buffer.Loc(fold.startCharacter, fold.startLine - lineDiff)
+	        
+	        rangeStart = buffer.Loc(fold.startCharacter, fold.startLine - lineDiff)
+	        rangeEnd = buffer.Loc(fold.endCharacter, fold.endLine - lineDiff)
+	        -- apply each change
+	        bp.Cursor:GotoLoc(rangeStart)
+	        bp.Cursor:SetSelectionStart(rangeStart)
+	        bp.Cursor:SetSelectionEnd(rangeEnd)
+	        local oldContent = util.String(bp.Cursor:GetSelection())
+	        local lines = mysplit(oldContent, "\n")
+	        local newText = fold.collapsedText
+	        if newText == nil and #lines > 0 then
+	          newText = (lines[1] .. "…" .. lines[#lines])
+	        end
+	        if newText == nil then
+	          newText = "…"
+	        end
+	        -- save active folds in object (including contents of folds) so we can
+	        -- reference them later on
+	        table.insert(appliedFolds, { startCharacter = fold.startCharacter, startLine = fold.startLine, oldContent = oldContent, lines = fold.endLine - fold.startLine, len = #newText })
+	  	    table.sort(appliedFolds, function (a, b)
+				return a.startLine - b.startLine
+			end)
+	        bp.Cursor:DeleteSelection()
+	        bp.Cursor:ResetSelection()
+	        bp.Buf:Insert(beforeRangeStart, newText)
 
-        -- need to save active folds in object (including contents of folds)
-        -- on save unfold all and then save
-
-        bp.Cursor:GotoLoc(beforeRangeStart)
-		bp.Cursor:SelectLine()
-		local lineContent = util.String(bp.Cursor:GetSelection())
-		bp.Cursor:DeleteSelection()
-		bp.Cursor:ResetSelection()
-		newContent = lineContent:gsub("\n", "…")
-        bp.Buf:Insert(beforeRangeStart, newContent)
+	        -- stop processing after we folded the current one
+	        break
+	     end
 	end
-
-    micro.Log("folding ranges ", results)
 end
 
 --

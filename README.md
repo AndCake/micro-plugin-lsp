@@ -83,7 +83,7 @@ This plugin has been tested briefly with the following language servers:
 - markdown, JSON, typescript, javascript (including JSX/TSX):
   [deno](https://deno.land/)
 - python: pyls, [pylsp](https://github.com/python-lsp/python-lsp-server)
-- rust: [rls](https://github.com/rust-lang/rls)
+- rust: [rls](https://github.com/rust-lang/rls), [rust-analyzer](https://rust-analyzer.github.io/)
 - lua: [lua-lsp](https://github.com/Alloyed/lua-lsp)
 - zig: [zls](https://github.com/zigtools/zls)
 

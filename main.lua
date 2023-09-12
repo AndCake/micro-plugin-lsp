@@ -247,7 +247,7 @@ end
 function onBufferOpen(buf)
 	local filetype = buf:FileType()
 	micro.Log("ONBUFFEROPEN", filetype)
-	if filetype ~= "unknown" and rootUri == "" and not cmd[filetype] then return startServer(filetype, handleInitialized); end
+	if filetype ~= "unknown" and not cmd[filetype] then return startServer(filetype, handleInitialized); end
 	if cmd[filetype] then
 	    handleInitialized(buf, filetype)
 	end

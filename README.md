@@ -24,8 +24,13 @@ If possible, this plugin will register the following shortcuts:
 
 ## Installation
 
-Clone this repo into micro's plug folder:
+You can install micro plugins from the command line. To install 
+this plugin, run the following command in your command line:
+```
+$ micro -plugin install lsp
+```
 
+Alternatively, you can clone this repo into micro's plug folder:
 ```
 $ git clone https://github.com/AndCake/micro-plugin-lsp ~/.config/micro/plug/lsp
 ```

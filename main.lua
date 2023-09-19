@@ -10,6 +10,8 @@ local go_os = import("os")
 local path = import("path")
 local filepath = import("path/filepath")
 
+local json = {}
+
 local cmd = {}
 local id = {}
 local version = {}
@@ -23,8 +25,8 @@ local lastCompletion = {}
 local splitBP = nil
 local tabCount = 0
 local appliedFolds = {}
-
-local json = {}
+local originalText = {}
+local savedCursor = nil
 
 function toBytes(str)
 	local result = {}
@@ -161,27 +163,28 @@ function preRune(bp, r)
 
     local inserted = false
 	if #appliedFolds > 0 then
+		local cur = bp.Buf:GetActiveCursor()
+		cur = { X = cur.X, Y = cur.Y }
+		micro.Log('Before CURSOR: ', cur.X, cur.Y)
 	    -- we assume the appliedFolds is sorted (happens when applying a fold)
 	    local lineDiff = 0
 		for idx, fold in ipairs(appliedFolds) do
-		    if fold.startLine - lineDiff < bp.Cursor.Y then
-			    lineDiff = lineDiff + fold.lines
+		    if fold.startLine - lineDiff < cur.Y then
+			    lineDiff = lineDiff + (fold.endLine - fold.startLine)
 		    end
-			if fold.startLine - lineDiff == bp.Cursor.Y then
+			if fold.startLine - lineDiff == cur.Y then
 				-- un-apply the fold
-				micro.Log("Unfolding again", fold)
-				local rangeStart = buffer.Loc(fold.startCharacter, fold.startLine - lineDiff)
-				local rangeEnd = buffer.Loc(fold.startCharacter + fold.len - 2, fold.startLine - lineDiff)
-		        bp.Cursor:GotoLoc(rangeStart)
-		        bp.Cursor:SetSelectionStart(rangeStart)
-		        bp.Cursor:SetSelectionEnd(rangeEnd)
-   			    bp.Buf:Insert(buffer.Loc(fold.startCharacter, fold.startLine - lineDiff), fold.oldContent)
-   			    bp.Cursor:DeleteSelection()
+				table.remove(appliedFolds, idx)
    			    inserted = true
-   			    table.remove(appliedFolds, idx)
-   			    break
 			end
 		end
+		micro.Log("Unfolding all", lineDiff, #appliedFolds)
+		unfoldAll(bp)
+
+		savedCursor = cur
+		micro.Log('New CURSOR', cur.X, cur.Y + lineDiff)
+		bp.Buf:GetActiveCursor():GotoLoc(buffer.Loc(cur.X, cur.Y + lineDiff))
+		micro.Log("Saved cursor")
 	end
 
 	if inserted == true then
@@ -205,20 +208,12 @@ function onRune(bp, r)
 	if r ~= nil then
 		lastCompletion = {}
 	end
+	
 	-- allow the document contents to be escaped properly for the JSON string
 	local content = util.String(bp.Buf:Bytes())
-	-- apply all folds to the content string
-	local lineDiff = 0
+	originalText[uri] = content
 	local lines = mysplit(content, "\n")
 	content = ""
-	for _idx, fold in ipairs(appliedFolds) do
-		-- un-apply the fold
-		local pre = lines[fold.startLine + 1]:sub(1, fold.startCharacter + 1)
-		local post = lines[fold.startLine + 1]:sub(fold.startCharacter + fold.len - 2, -1)
-		micro.Log("Unapply fold ", fold, "NEW CONTENT", pre .. fold.oldContent .. post, "PRE", pre, "POST", post, lines[fold.startLine + 1])
-		lines[fold.startLine + 1] = pre .. fold.oldContent .. post
-		lines = mysplit(table.concat(lines, "\n"), "\n")
-	end
 	content = table.concat(lines, "\n"):gsub("\\", "\\\\"):gsub("\n", "\\n"):gsub("\r", "\\r"):gsub('"', '\\"'):gsub("\t", "\\t")
 	-- increase change version
 	version[uri] = (version[uri] or 0) + 1
@@ -231,31 +226,39 @@ function onRune(bp, r)
 			hoverAction(bp)
 		end
 	end
+
+	-- re-apply all folds
+	applyFolds(bp)
+	if savedCursor then
+		micro.Log("RESTORE CURSOR ", savedCursor.X, savedCursor.Y)
+		bp.Buf:GetActiveCursor():GotoLoc(buffer.Loc(savedCursor.X, savedCursor.Y))
+		savedCursor = nil
+	end
 end
 
 -- alias functions for any kind of change to the document
-function onMoveLinesUp(bp) onRune(bp) end
-function onMoveLinesDown(bp) onRune(bp) end
-function onDeleteWordRight(bp) onRune(bp) end
-function onDeleteWordLeft(bp) onRune(bp) end
-function onInsertNewline(bp) onRune(bp) end
-function onInsertSpace(bp) onRune(bp) end
-function onBackspace(bp) onRune(bp) end
-function onDelete(bp) onRune(bp) end
-function onInsertTab(bp) onRune(bp) end
-function onUndo(bp) onRune(bp) end
-function onRedo(bp) onRune(bp) end
-function onCut(bp) onRune(bp) end
-function onCutLine(bp) onRune(bp) end
-function onDuplicateLine(bp) onRune(bp) end
-function onDeleteLine(bp) onRune(bp) end
-function onIndentSelection(bp) onRune(bp) end
-function onOutdentSelection(bp) onRune(bp) end
-function onOutdentLine(bp) onRune(bp) end
-function onIndentLine(bp) onRune(bp) end
-function onPaste(bp) onRune(bp) end
-function onPlayMacro(bp) onRune(bp) end
-function onAutocomplete(bp) onRune(bp) end
+function onMoveLinesUp(bp) preRune(bp); onRune(bp) end
+function onMoveLinesDown(bp) preRune(bp); onRune(bp) end
+function onDeleteWordRight(bp) preRune(bp); onRune(bp) end
+function onDeleteWordLeft(bp) preRune(bp); onRune(bp) end
+function onInsertNewline(bp) preRune(bp); onRune(bp) end
+function onInsertSpace(bp) preRune(bp); onRune(bp) end
+function onBackspace(bp) preRune(bp); onRune(bp) end
+function onDelete(bp) preRune(bp); onRune(bp) end
+function onInsertTab(bp) preRune(bp); onRune(bp) end
+function onUndo(bp) preRune(bp); onRune(bp) end
+function onRedo(bp) preRune(bp); onRune(bp) end
+function onCut(bp) preRune(bp); onRune(bp) end
+function onCutLine(bp) preRune(bp); onRune(bp) end
+function onDuplicateLine(bp) preRune(bp); onRune(bp) end
+function onDeleteLine(bp) preRune(bp); onRune(bp) end
+function onIndentSelection(bp) preRune(bp); onRune(bp) end
+function onOutdentSelection(bp) preRune(bp); onRune(bp) end
+function onOutdentLine(bp) preRune(bp); onRune(bp) end
+function onIndentLine(bp) preRune(bp); onRune(bp) end
+function onPaste(bp) preRune(bp); onRune(bp) end
+function onPlayMacro(bp) preRune(bp); onRune(bp) end
+function onAutocomplete(bp) preRune(bp); onRune(bp) end
 
 function onEscape(bp) 
 	if splitBP ~= nil then
@@ -280,7 +283,23 @@ function preInsertNewline(bp)
 	end
 end
 
+function unfoldAll(bp)
+	-- unfolding means re-applying all folds, except the one we don't want
+	local cur = bp.Buf:GetActiveCursor()
+    bp:SelectAll()
+	local uri = getUriFromBuf(bp.Buf)
+    bp.Buf:Insert(buffer.Loc(1, 1), originalText[uri])
+    bp.Cursor:DeleteSelection()
+   	bp.Cursor:GotoLoc(buffer.Loc(cur.X, cur.Y))
+end
+
 function preSave(bp)
+	-- unfold all folds
+	if #appliedFolds > 0 then
+		appliedFolds = {}
+		unfoldAll(bp)
+	end
+	
 	if config.GetGlobalOption("lsp.formatOnSave") then
 		onRune(bp)
 		formatAction(bp, function ()
@@ -296,6 +315,7 @@ function handleInitialized(buf, filetype)
 	local uri = getUriFromBuf(buf)
 	local content = util.String(buf:Bytes()):gsub("\\", "\\\\"):gsub("\n", "\\n"):gsub("\r", "\\r"):gsub('"', '\\"'):gsub("\t", "\\t")
 	send("textDocument/didOpen", fmt.Sprintf('{"textDocument": {"uri": "%s", "languageId": "%s", "version": 1, "text": "%s"}}', uri, filetype, content), true)
+	originalText[uri] = util.String(buf:Bytes())
 end
 
 function onBufferOpen(buf)
@@ -885,6 +905,43 @@ function foldingRangeAction(bp)
 	send(currentAction[filetype].method, fmt.Sprintf('{"textDocument": {"uri": "file://%s"}}', file))
 end
 
+function getLocation(txt, line, char)
+	local lines = mysplit(txt, '\n')
+	local chars = 0
+	micro.Log('GETTING LOCATION FOR ', line, char)
+	for i = 1, line do
+		chars = chars + #lines[i] + 1 -- +1 to include the \n character for each line too...
+	end
+	return chars + (char or (#lines[line + 1] - 1)) + 1, chars
+end
+
+function applyFolds(bp)
+	local uri = getUriFromBuf(bp.Buf)
+	local cur = bp.Buf:GetActiveCursor()
+	cur = { X = cur.X, Y = cur.Y }
+	micro.Log("Current cursor: ", cur)
+	if originalText[uri] == nil then
+		originalText[uri] = util.String(bp.Buf:Bytes())
+	end
+	local documentContent = '' .. (originalText[uri] or '')
+
+	bp:SelectAll()
+	bp.Cursor:DeleteSelection()
+	bp.Cursor:ResetSelection()
+
+	for _, fold in ipairs(appliedFolds) do
+        local rangeStart, rangeStartLine = getLocation(documentContent, fold.startLine, fold.startCharacter)
+        local rangeEnd, rangeEndLine = getLocation(documentContent, fold.endLine, fold.endCharacter)
+        micro.Log("FOLD ", fold, rangeStart, rangeEnd, rangeStartLine, rangeEndLine)
+       	local before = documentContent:sub(1, rangeStart)
+       	local after = documentContent:sub(rangeEnd)
+       	documentContent = before .. (fold.collapsedText or '…') .. after
+        cur.Y = fold.startLine
+	end
+    bp.Buf:Insert(buffer.Loc(1, 1), documentContent)
+    bp.Buf:GetActiveCursor():GotoLoc(buffer.Loc(cur.X, cur.Y))
+end
+
 function foldingRangeActionResponse(bp, data)    
 	if data.result == nil then return; end
 	local results = data.result or data.partialResult
@@ -905,44 +962,21 @@ function foldingRangeActionResponse(bp, data)
 		  end
 	    end
 	    if bp.Cursor.Y >= fold.startLine - lineDiff and bp.Cursor.Y <= fold.endLine - lineDiff then
-	        micro.Log("FOLD ", fold, "Cursor: ", bp.Cursor.X, ",", bp.Cursor.Y, "LINE DIFF", lineDiff)
-	        beforeRangeStart = buffer.Loc(fold.startCharacter, fold.startLine - lineDiff)
-	        
-	        rangeStart = buffer.Loc(fold.startCharacter, fold.startLine - lineDiff)
-	        rangeEnd = buffer.Loc(fold.endCharacter, fold.endLine - lineDiff)
-	        -- apply each change
-	        bp.Cursor:GotoLoc(rangeStart)
-	        bp.Cursor:SetSelectionStart(rangeStart)
-	        bp.Cursor:SetSelectionEnd(rangeEnd)
-	        local oldContent = util.String(bp.Cursor:GetSelection())
-	        local lines = mysplit(oldContent, "\n")
-	        local newText = fold.collapsedText
-	        if newText == nil and #lines > 0 then
-	          newText = (lines[1] .. "…" .. lines[#lines])
-	        end
-	        if newText == nil then
-	          newText = "…"
-	        end
-	        -- save active folds in object (including contents of folds) so we can
-	        -- reference them later on
-	        table.insert(appliedFolds, { startCharacter = fold.startCharacter, startLine = fold.startLine, oldContent = oldContent, lines = fold.endLine - fold.startLine, len = #newText })
+	        table.insert(appliedFolds, fold)
 	  	    table.sort(appliedFolds, function (a, b)
 				return a.startLine - b.startLine
 			end)
-	        bp.Cursor:DeleteSelection()
-	        bp.Cursor:ResetSelection()
-	        bp.Buf:Insert(beforeRangeStart, newText)
-
-	        -- stop processing after we folded the current one
+	        -- stop processing after we found the current one
 	        break
 	     end
 	end
+	-- apply all folds to the document
+	applyFolds(bp)
 end
 
 --
 -- @TODO implement additional functions here...
 --
-
 
 
 --
@@ -1051,3 +1085,5 @@ function json.parse(str, pos, end_delim)
     error('Invalid json syntax starting at ' .. pos_info_str .. ': ' .. str)
   end
 end
+
+return json

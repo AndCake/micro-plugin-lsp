@@ -234,19 +234,28 @@ function onRune(bp, r)
 end
 
 -- alias functions for any kind of change to the document
--- @TODO: add missing ones
-function onBackspace(bp) onRune(bp); end
-function onCut(bp) onRune(bp); end
-function onCutLine(bp) onRune(bp); end
-function onDuplicateLine(bp) onRune(bp); end
-function onDeleteLine(bp) onRune(bp); end
-function onDelete(bp) onRune(bp); end
-function onUndo(bp) onRune(bp); end
-function onRedo(bp) onRune(bp); end
-function onIndent(bp) onRune(bp); end
-function onIndentSelection(bp) onRune(bp); end
-function onPaste(bp) onRune(bp); end
-function onSave(bp) onRune(bp); end
+function onMoveLinesUp(bp) onRune(bp) end
+function onMoveLinesDown(bp) onRune(bp) end
+function onDeleteWordRight(bp) onRune(bp) end
+function onDeleteWordLeft(bp) onRune(bp) end
+function onInsertNewline(bp) onRune(bp) end
+function onInsertSpace(bp) onRune(bp) end
+function onBackspace(bp) onRune(bp) end
+function onDelete(bp) onRune(bp) end
+function onInsertTab(bp) onRune(bp) end
+function onUndo(bp) onRune(bp) end
+function onRedo(bp) onRune(bp) end
+function onCut(bp) onRune(bp) end
+function onCutLine(bp) onRune(bp) end
+function onDuplicateLine(bp) onRune(bp) end
+function onDeleteLine(bp) onRune(bp) end
+function onIndentSelection(bp) onRune(bp) end
+function onOutdentSelection(bp) onRune(bp) end
+function onOutdentLine(bp) onRune(bp) end
+function onIndentLine(bp) onRune(bp) end
+function onPaste(bp) onRune(bp) end
+function onPlayMacro(bp) onRune(bp) end
+function onAutocomplete(bp) onRune(bp) end
 
 function onEscape(bp) 
 	if splitBP ~= nil then

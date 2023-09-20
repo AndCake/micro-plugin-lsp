@@ -169,10 +169,10 @@ function preRune(bp, r)
 	    -- we assume the appliedFolds is sorted (happens when applying a fold)
 	    local lineDiff = 0
 		for idx, fold in ipairs(appliedFolds) do
-		    if fold.startLine - lineDiff < cur.Y then
+		    if fold.startLine - lineDiff < cur.Y + 1 then
 			    lineDiff = lineDiff + (fold.endLine - fold.startLine)
 		    end
-			if fold.startLine - lineDiff == cur.Y then
+			if fold.startLine - lineDiff == cur.Y + 1 then
 				-- un-apply the fold
 				table.remove(appliedFolds, idx)
    			    inserted = true
@@ -286,10 +286,12 @@ end
 function unfoldAll(bp)
 	-- unfolding means re-applying all folds, except the one we don't want
 	local cur = bp.Buf:GetActiveCursor()
+	cur = {X = cur.X, Y = cur.Y}
     bp:SelectAll()
-	local uri = getUriFromBuf(bp.Buf)
-    bp.Buf:Insert(buffer.Loc(1, 1), originalText[uri])
     bp.Cursor:DeleteSelection()
+	local uri = getUriFromBuf(bp.Buf)
+	micro.Log("UNFOLDING from " .. uri, originalText[uri])
+    bp.Buf:Insert(buffer.Loc(1, 1), originalText[uri])
    	bp.Cursor:GotoLoc(buffer.Loc(cur.X, cur.Y))
 end
 
@@ -909,6 +911,12 @@ function getLocation(txt, line, char)
 	local lines = mysplit(txt, '\n')
 	local chars = 0
 	micro.Log('GETTING LOCATION FOR ', line, char)
+	if line > #lines then
+		if #lines == 1 then
+			error("EMPTY DOCUMENT?" .. txt)
+		end
+		error("No such line: " .. line .. " / " .. #lines)
+	end
 	for i = 1, line do
 		chars = chars + #lines[i] + 1 -- +1 to include the \n character for each line too...
 	end
@@ -921,9 +929,12 @@ function applyFolds(bp)
 	cur = { X = cur.X, Y = cur.Y }
 	micro.Log("Current cursor: ", cur)
 	if originalText[uri] == nil then
+		micro.Log("No text stored in " .. uri)
 		originalText[uri] = util.String(bp.Buf:Bytes())
+		micro.Log("New data stored: ", originalText[uri])
 	end
 	local documentContent = '' .. (originalText[uri] or '')
+	micro.Log("Data retrieved: ", documentContent)
 
 	bp:SelectAll()
 	bp.Cursor:DeleteSelection()
@@ -936,6 +947,7 @@ function applyFolds(bp)
        	local before = documentContent:sub(1, rangeStart)
        	local after = documentContent:sub(rangeEnd)
        	documentContent = before .. (fold.collapsedText or '…') .. after
+       	micro.Log("UPDATE: ", documentContent)
         cur.Y = fold.startLine
 	end
     bp.Buf:Insert(buffer.Loc(1, 1), documentContent)
@@ -958,10 +970,10 @@ function foldingRangeActionResponse(bp, data)
 	    local lineDiff = 0
 	    for _i, applied in ipairs(appliedFolds) do
 	      if applied.startLine <= fold.startLine then
-		      lineDiff = lineDiff + applied.lines
+		      lineDiff = lineDiff + (applied.endLine - applied.startLine)
 		  end
 	    end
-	    if bp.Cursor.Y >= fold.startLine - lineDiff and bp.Cursor.Y <= fold.endLine - lineDiff then
+	    if bp.Cursor.Y + 1 >= fold.startLine - lineDiff and bp.Cursor.Y + 1 <= fold.endLine - lineDiff then
 	        table.insert(appliedFolds, fold)
 	  	    table.sort(appliedFolds, function (a, b)
 				return a.startLine - b.startLine

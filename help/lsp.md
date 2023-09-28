@@ -57,12 +57,12 @@ wish to use the Palantir version (last updated in 2020) instead, set
 
 If your lsp.server settings are autoremoved, you can
 
-    $ export MICRO_LSP='python=pylsp,go=gopls,typescript=deno lsp={"importMap":"import_map.json"},rust=rls'
+    $ export MICRO_LSP='python=pylsp,go=gopls,typescript=deno lsp={"importMap":"import_map.json"},rust=rust-analyzer'
 
 The lsp.server default settings (if no others are defined) are:
 
 ```
-python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,markdown=deno lsp,json=deno lsp,jsonc=deno lsp,rust=rls,lua=lua-lsp,c++=clangd
+python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,markdown=deno lsp,json=deno lsp,jsonc=deno lsp,rust=rust-analyzer,lua=lua-lsp,c++=clangd
 ```
 
 ## Install Language Server
@@ -306,7 +306,9 @@ the useful ones.
 
 [mypy - Optional Static Typing for Python](http://mypy-lang.org/)
 
-[rls - Rust Language Server](https://github.com/rust-lang/rls)
+[rust-analyzer](https://github.com/rust-lang/rust-analyzer)
+
+[rls - Rust Language Server](https://github.com/rust-lang/rls) (deprecated)
 
 [deno](https://deno.land/)
 

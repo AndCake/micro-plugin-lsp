@@ -72,7 +72,7 @@ function startServer(filetype, callback)
 	rootUri = fmt.Sprintf("file://%s", wd)
 	local envSettings, _ = go_os.Getenv("MICRO_LSP")
 	local settings = config.GetGlobalOption("lsp.server")
-	local fallback = "python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,markdown=deno lsp,json=deno lsp,jsonc=deno lsp,rust=rls,lua=lua-lsp,c++=clangd"
+	local fallback = "python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,markdown=deno lsp,json=deno lsp,jsonc=deno lsp,rust=rust-analyzer,lua=lua-lsp,c++=clangd"
 	if envSettings ~= nil and #envSettings > 0 then
 		settings = envSettings
 	end
@@ -242,6 +242,18 @@ function preSave(bp)
 			bp:Save()
 		end)
 	end
+end
+
+function onSave(bp)
+	local filetype = bp.Buf:FileType()
+	if cmd[filetype] == nil then
+		return
+	end
+
+	local send = withSend(filetype)
+	local uri = getUriFromBuf(bp.Buf)
+
+	send("textDocument/didSave", fmt.Sprintf('{"textDocument": {"uri": "%s"}}', uri), true)
 end
 
 function handleInitialized(buf, filetype)

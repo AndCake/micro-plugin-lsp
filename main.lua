@@ -54,17 +54,16 @@ function mysplit (inputstr, sep)
         return t
 end
 
+function table.join(tbl, sep)
+	local result = ''
+	for _, value in ipairs(tbl) do
+		result = result .. (#result > 0 and sep or '') .. value
+	end
+	return result
+end
+
 function parseOptions(inputstr)
-	local t = {}
-	inputstr = inputstr:gsub("[%w+_-]+=[^=,]+={.-}", function (str)
-		table.insert(t, str)
-		return '';
-	end)
-	inputstr = inputstr:gsub("[%w+_-]+=[^=,]+", function (str)
-		table.insert(t, str)
-		return '';
-	end)
-	return t
+	return mysplit(inputstr, ',')
 end
 
 function startServer(filetype, callback)
@@ -83,12 +82,17 @@ function startServer(filetype, callback)
 	end
 	local server = parseOptions(settings)
 	micro.Log("Server Options", server)
-	for i in pairs(server) do
+	for i in ipairs(server) do
 		local part = mysplit(server[i], "=")
-		local run = mysplit(part[2], "%s")
+		local run = mysplit(part[2] or '', "%s")
 		local initOptions = part[3] or '{}'
 		local runCmd = table.remove(run, 1)
 		local args = run
+		for idx, narg in ipairs(args) do
+			args[idx] = narg:gsub("%%[a-zA-Z0-9][a-zA-Z0-9]", function(entry)
+				return string.char(tonumber(entry:sub(2), 16))
+			end)
+		end
 		if filetype == part[1] then
 		local send = withSend(part[1])
 		if cmd[part[1]] ~= nil then return; end
@@ -138,7 +142,8 @@ function withSend(filetype)
 	    if cmd[filetype] == nil then
 	    	return
 	    end
-	    
+
+		micro.Log(filetype .. ">>> " .. method)
 		local msg = fmt.Sprintf('{"jsonrpc": "2.0", %s"method": "%s", "params": %s}', not isNotification and fmt.Sprintf('"id": %.0f, ', id[filetype]) or "", method, params)
 		id[filetype] = id[filetype] + 1
 		msg = fmt.Sprintf("Content-Length: %.0f\r\n\r\n%s", #msg, msg)
@@ -348,6 +353,8 @@ function onStdout(filetype)
 		if data == false then
 			return
 		end
+
+		micro.Log(filetype .. " <<< " .. (data.method or 'no method'))
 		
 		if data.method == "workspace/configuration" then
 		    -- actually needs to respond with the same ID as the received JSON
@@ -402,7 +409,9 @@ end
 
 function onStderr(text)
 	micro.Log("ONSTDERR", text)
-	--micro.InfoBar():Message(text)
+	if not isIgnoredMessage(text) then
+		micro.InfoBar():Message(text)
+	end
 end
 
 function onExit(filetype)

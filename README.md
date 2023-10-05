@@ -46,7 +46,7 @@ Example:
 
 ```
 {
-	"lsp.server": "python=pyls,go=gopls,typescript=deno lsp,rust=rls",
+	"lsp.server": "python=pyls,go=gopls,typescript=deno lsp,rust=rust-analyzer",
 	"lsp.formatOnSave": true,
 	"lsp.ignoreMessages": "LS message1 to ignore|LS message 2 to ignore|...",
 	"lsp.tabcompletion": true,
@@ -67,14 +67,14 @@ information. If set, it will override the `lsp.server` from the `settings.json`.
 You can add a line such as the following to your shell profile (e.g. .bashrc):
 
 ```
-export MICRO_LSP='python=pyls,go=gopls,typescript=deno lsp={"importMap":"import_map.json"},rust=rls'
+export MICRO_LSP='python=pyls,go=gopls,typescript=deno lsp={"importMap":"import_map.json"},rust=rust-analyzer'
 ```
 
 If neither the MICRO_LSP nor the lsp.server is set, then the plugin falls back
 to the following settings:
 
 ```
-python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,markdown=deno lsp,json=deno lsp,jsonc=deno lsp,rust=rls,lua=lua-lsp,c++=clangd
+python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,markdown=deno lsp,json=deno lsp,jsonc=deno lsp,rust=rust-analyzer,lua=lua-lsp,c++=clangd
 ```
 
 The option `lsp.autocompleteDetails` allows for showing all auto-completions in

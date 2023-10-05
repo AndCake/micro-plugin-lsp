@@ -27,8 +27,10 @@ been briefly tested with
 - markdown, JSON, typescript, javascript (including JSX/TSX):
   [deno](https://deno.land/)
 - python: pyls and [pylsp](https://github.com/python-lsp/python-lsp-server)
-- rust: [rls](https://github.com/rust-lang/rls), [rust-analyzer](https://rust-analyzer.github.io/)
+- rust: [rls](https://github.com/rust-lang/rls) (deprecated),
+  [rust-analyzer](https://rust-analyzer.github.io/)
 - lua: [lua-lsp](https://github.com/Alloyed/lua-lsp)
+- php: [intelephense](https://intelephense.com/)
 
 ## Install LSP plugin
 
@@ -260,6 +262,19 @@ Once installed, open micro, press ctrl+e and type the following command:
 
 Close micro again and open a zig file.
 
+### PHP Intelephense
+
+The Intelephense PHP language server natively provides code completion as well
+as hover, formatting, diagnostics and references. It can be installed by
+following
+[these instructions](https://github.com/bmewburn/intelephense-docs/blob/master/installation.md).
+
+Once installed, open micro, press ctrl+e and type the following command:
+
+    set lsp.server php=intelephense --stdio
+
+Close micro again and open a PHP file.
+
 ## Ignoring unhelpful messages
 
 In addition to providing assistance while coding, some language servers can show
@@ -313,3 +328,6 @@ the useful ones.
 [typescript-language-server](https://www.npmjs.com/package/typescript-language-server)
 
 [lua-lsp - A Lua language server](https://github.com/Alloyed/lua-lsp)
+
+[intelephense - the PHP language server](https://github.com/bmewburn/intelephense-docs/blob/master/installation.md)
+

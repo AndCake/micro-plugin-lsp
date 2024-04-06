@@ -768,9 +768,10 @@ function formatAction(bp, callback)
 	if cmd[filetype] == nil then return; end
 	local send = withSend(filetype)
 	local file = bp.Buf.AbsPath
+	local cfg = bp.Buf.Settings
 
 	currentAction[filetype] = { method = "textDocument/formatting", response = formatActionResponse(callback) }
-	send(currentAction[filetype].method, fmt.Sprintf('{"textDocument": {"uri": "file://%s"}, "options": {"tabSize": 4, "insertSpaces": true}}', file))
+	send(currentAction[filetype].method, fmt.Sprintf('{"textDocument": {"uri": "file://%s"}, "options": {"tabSize": %.0f, "insertSpaces": %t, "trimTrailingWhitespace": %t, "insertFinalNewline": %t}}', file, cfg["tabsize"], cfg["tabstospaces"], cfg["rmtrailingws"], cfg["eofnewline"]))
 end
 
 function formatActionResponse(callback)

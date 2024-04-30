@@ -71,7 +71,7 @@ function startServer(filetype, callback)
 	rootUri = fmt.Sprintf("file://%s", wd)
 	local envSettings, _ = go_os.Getenv("MICRO_LSP")
 	local settings = config.GetGlobalOption("lsp.server")
-	local fallback = "python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,markdown=deno lsp,json=deno lsp,jsonc=deno lsp,rust=rust-analyzer,lua=lua-lsp,c++=clangd"
+	local fallback = "python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,markdown=deno lsp,json=deno lsp,jsonc=deno lsp,rust=rust-analyzer,lua=lua-language-server,c++=clangd,dart=dart language-server"
 	if envSettings ~= nil and #envSettings > 0 then
 		settings = envSettings
 	end
@@ -111,8 +111,8 @@ function startServer(filetype, callback)
 end
 
 function init()
-	config.RegisterCommonOption("lsp", "server", "python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,markdown=deno lsp,json=deno lsp,jsonc=deno lsp,rust=rust-analyzer,lua=lua-lsp,c++=clangd")
-	config.RegisterCommonOption("lsp", "formatOnSave", true)
+	config.RegisterCommonOption("lsp", "server", "python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,markdown=deno lsp,json=deno lsp,jsonc=deno lsp,rust=rust-analyzer,lua=lua-language-server,c++=clangd,dart=dart language-server")
+	config.RegisterCommonOption("lsp", "formatOnSave", false)
 	config.RegisterCommonOption("lsp", "autocompleteDetails", false)
 	config.RegisterCommonOption("lsp", "ignoreMessages", "")
 	config.RegisterCommonOption("lsp", "tabcompletion", true)
@@ -469,7 +469,7 @@ function definitionActionResponse(bp, data)
 	end
 	if #results <= 0 then return; end
 	local uri = (results[1].uri or results[1].targetUri)
-	local doc = uri:gsub("^file://", "")
+	local doc = uri:gsub("^file://", ""):gsub('%%[a-f0-9][a-f0-9]', function(x, y, z) print("X", x); return string.char(tonumber(x:gsub('%%', ''), 16)) end)
 	local buf = bp.Buf
 	if file ~= doc then
 		-- it's from a different file, so open it as a new tab

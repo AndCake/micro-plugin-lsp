@@ -340,17 +340,29 @@ function isIgnoredMessage(msg)
 end
 
 function onStdout(filetype)
+	local nextMessage = ''
 	return function (text)
 		if text:starts("Content-Length:") then
 			message = text
 		else
 			message = message .. text
 		end
-		if not text:ends("}") then
+		message = message:gsub('}Content%-Length:', '}\0Content-Length:')
+		local entries = mysplit(message, '\0')
+		if #entries > 1 then
+			micro.Log('Found break')
+			entries[1] = entries[1]
+			entries[2] = entries[2]
+			message = entries[1]
+			nextMessage = entries[2]
+		end
+		if not message:ends("}") then
+			micro.Log('Message incomplete, ignoring for now...')
 			return
 		end	
 		local data = message:parse()
 		if data == false then
+			micro.Log('Parsing failed', message)
 			return
 		end
 
@@ -403,6 +415,12 @@ function onStdout(filetype)
 		else
 			-- enable for debugging purposes
 			micro.Log("Unhandled message 2", filetype, message)
+		end
+
+		if nextMessage then
+			local nm = nextMessage
+			nextMessage = nil
+			onStdout(filetype)(nm)
 		end
 	end
 end

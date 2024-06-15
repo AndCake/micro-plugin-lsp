@@ -26,12 +26,13 @@ local json = json
 function init()
 	-- register all configuration options
 	config.RegisterCommonOption("lsp", "server",
-		"python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,markdown=deno lsp,json=deno lsp,jsonc=deno lsp,rust=rust-analyzer,lua=lua-language-server,c++=clangd,dart=dart language-server")
+		'python=pylsp,go=gopls,typescript=deno lsp={"enable":true},javascript=deno lsp={"enable":true},markdown=deno lsp={"enable":true},json=deno lsp={"enable":true},jsonc=deno lsp={"enable":true},rust=rust-analyzer,lua=lua-language-server,c++=clangd,dart=dart language-server')
 	config.RegisterCommonOption("lsp", "formatOnSave", false)
 	config.RegisterCommonOption("lsp", "autocompleteDetails", false)
 	config.RegisterCommonOption("lsp", "ignoreMessages", "")
 	config.RegisterCommonOption("lsp", "tabcompletion", true)
 	config.RegisterCommonOption("lsp", "ignoreTriggerCharacters", "completion")
+		
 	-- example to ignore all LSP server message starting with these strings:
 	-- "lsp.ignoreMessages": "Skipping analyzing |See https://"
 
@@ -52,7 +53,7 @@ function startServer(filetype, callback)
 	local envSettings, _ = go_os.Getenv("MICRO_LSP")
 	local settings = config.GetGlobalOption("lsp.server")
 	local fallback =
-	"python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,markdown=deno lsp,json=deno lsp,jsonc=deno lsp,rust=rust-analyzer,lua=lua-language-server,c++=clangd,dart=dart language-server"
+	'python=pylsp,go=gopls,typescript=deno lsp={"enable":true},javascript=deno lsp={"enable":true},markdown=deno lsp={"enable":true},json=deno lsp={"enable":true},jsonc=deno lsp={"enable":true},rust=rust-analyzer,lua=lua-language-server,c++=clangd,dart=dart language-server'
 	if envSettings ~= nil and #envSettings > 0 then
 		settings = envSettings
 	end
@@ -66,7 +67,7 @@ function startServer(filetype, callback)
 	for i in ipairs(server) do
 		local part = mysplit(server[i], "=")
 		local run = mysplit(part[2] or '', "%s")
-		local initOptions = part[3] or '{}'
+		local initOptions = config.GetGlobalOption('lsp.' .. part[1]) or part[3] or '{}'
 		local runCmd = table.remove(run, 1)
 		local args = run
 		for idx, narg in ipairs(args) do
@@ -108,6 +109,7 @@ function withSend(filetype)
 			not isNotification and fmt.Sprintf('"id": %.0f, ', id[filetype]) or "", method, params)
 		id[filetype] = id[filetype] + 1
 		msg = fmt.Sprintf("Content-Length: %.0f\r\n\r\n%s", #msg, msg)
+		micro.Log(msg)
 		shell.JobSend(cmd[filetype], msg)
 	end
 end

@@ -77,6 +77,16 @@ to the following settings:
 python=pylsp,go=gopls,typescript=deno lsp,javascript=deno lsp,markdown=deno lsp,json=deno lsp,jsonc=deno lsp,rust=rust-analyzer,lua=lua-lsp,c++=clangd
 ```
 
+The initialization options can alternatively passed by updating the
+`settings.json` with a filetype-specific settings string, e.g.:
+
+```
+{
+	"lsp.typescript": "{\"enable\":true}",
+	"lsp.rust": "{\"cargo\": {\"buildScripts\": {\"enable\": true} }, \"procMacro\": {\"enable\": true} }"
+}
+```
+
 The option `lsp.autocompleteDetails` allows for showing all auto-completions in
 a horizontally split buffer view (true) instead of the status line (false).
 

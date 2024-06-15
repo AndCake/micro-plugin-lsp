@@ -6,7 +6,7 @@ local go_os = import('os')
 -- the definition action request and response
 function definitionAction(bp)
 	local filetype = bp.Buf:FileType()
-	print('Filetype', filetype, cmd[filetype])
+	micro.Log('Filetype', filetype, cmd[filetype])
 	if cmd[filetype] == nil then return; end
 
 	local send = withSend(filetype)

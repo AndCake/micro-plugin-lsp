@@ -1,5 +1,6 @@
 local micro = import("micro")
 local buffer = import("micro/buffer")
+local fmt = import('fmt')
 
 function formatAction(bp, callback)
 	local filetype = bp.Buf:FileType()
